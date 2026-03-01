@@ -1,0 +1,11 @@
+{
+  "id": "sensitive-data-detector",
+  "name": "Sensitive Data Detector",
+  "version": "1.0.0",
+  "description": "Detects sensitive personal data patterns (credit cards, emails, phone numbers, SSNs, IP addresses) exposed in page content and scripts",
+  "author": "Origami Community",
+  "analyzerClass": "SensitiveDataAnalyzer",
+  "resultCategory": "privacy",
+  "enabled": true,
+  "tags": ["pii", "data-exposure", "compliance"]
+}

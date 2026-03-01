@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- Purple gradient definition -->
+    <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6B46C1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#9333EA;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Origami crane design - minimalist line art -->
+  <g id="origami-crane" stroke="url(#purpleGradient)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Body (center diamond) -->
+    <path id="body" d="M 64 32 L 80 64 L 64 96 L 48 64 Z" class="body-part"/>
+
+    <!-- Left wing -->
+    <path id="left-wing" d="M 48 64 L 20 48 L 32 64 L 20 80 Z" class="wing-left" transform-origin="48 64"/>
+
+    <!-- Right wing -->
+    <path id="right-wing" d="M 80 64 L 108 48 L 96 64 L 108 80 Z" class="wing-right" transform-origin="80 64"/>
+
+    <!-- Head -->
+    <path id="head" d="M 64 32 L 64 16 L 68 20" class="head-part"/>
+
+    <!-- Tail -->
+    <path id="tail" d="M 64 96 L 64 112" class="tail-part"/>
+
+    <!-- Fold lines (subtle detail) -->
+    <line x1="48" y1="64" x2="80" y2="64" stroke-width="1.5" opacity="0.6"/>
+    <line x1="64" y1="32" x2="64" y2="96" stroke-width="1.5" opacity="0.6"/>
+  </g>
+</svg>

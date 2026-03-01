@@ -1,0 +1,23 @@
+{
+  "name": "origami-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server that bridges Claude Code with the Origami Chrome extension for cybersecurity analysis",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "origami-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js --verbose"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "ws": "^8.18.0",
+    "zod": "^3.24.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

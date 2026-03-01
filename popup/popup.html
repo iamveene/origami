@@ -1,0 +1,2593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Origami</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title">
+        <div class="header-brand">
+          <div class="kanji-badge">開</div>
+          <div class="brand-text">
+            <div class="brand-name-row">
+              <h1>Origami</h1>
+              <span class="beta-badge">BETA</span>
+              <span class="version">v0.5.0</span>
+              <button id="errorIndicatorBtn" class="header-error-badge" style="display: none;" title="View errors">
+                <span id="errorBadge" class="error-badge-count">0</span>
+              </button>
+            </div>
+            <span class="brand-slogan">Unfold. Detect. Secure.</span>
+          </div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="scanNowBtn" class="btn btn-primary" title="Unfold and analyze current page">
+          <img id="origamiIcon" src="../icons/icon16.png" alt="" width="16" height="16" style="display: inline-block; vertical-align: middle; margin-right: 4px;">
+          Unfold
+        </button>
+        <button id="aiAssessAllBtn" class="btn btn-primary" title="AI Assess all findings systematically">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z"/></svg> AI Assess All
+        </button>
+        <button id="aiPartnerBtn" class="btn btn-primary" title="Open AI Partner chat">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> AI Partner
+        </button>
+        <button id="reportMaliciousBtn" class="btn btn-danger" title="Report this website as malicious">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg> Report
+        </button>
+      </div>
+    </header>
+
+    <!-- Security Score Dashboard -->
+    <div id="scoreDashboard" class="score-dashboard" style="display: none;">
+      <div class="score-top-row">
+        <div class="score-label-group" id="scoreCircle">
+          <span id="scoreNumber" class="score-number">--</span>
+          <span id="scoreGrade" class="score-grade"></span>
+        </div>
+        <div class="score-bar-container">
+          <div class="score-bar-track">
+            <div class="score-bar-fill" id="scoreBarFill"></div>
+          </div>
+        </div>
+      </div>
+      <div class="score-breakdown" id="scoreBreakdown">
+        <!-- Filled dynamically -->
+      </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="findings">Secrets</button>
+      <button class="tab-btn" data-tab="security">Security</button>
+      <button class="tab-btn" data-tab="inventory">Inventory <span id="inventory-count-badge" class="tab-count-badge" style="display: none;"></span></button>
+      <button class="tab-btn" data-tab="attack-lab">Attack Lab</button>
+      <button class="tab-btn" data-tab="repeater">Repeater</button>
+      <button class="tab-btn" data-tab="graphql">GraphQL</button>
+      <button class="tab-btn" data-tab="templates">Templates</button>
+      <button class="tab-btn" data-tab="plugins">Plugins</button>
+      <button class="tab-btn" data-tab="reports">Reports</button>
+      <button class="tab-btn" data-tab="api-testing">API Testing</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+      <button class="tab-btn" data-tab="history">History</button>
+    </nav>
+
+    <!-- Tab Content -->
+    <div class="tab-content">
+      
+      <!-- Findings Tab -->
+      <div id="findings-tab" class="tab-pane active">
+        <div class="summary-stats">
+          <div class="stat-card critical">
+            <div class="stat-label">Critical</div>
+            <div class="stat-value" id="criticalCount">0</div>
+          </div>
+          <div class="stat-card high">
+            <div class="stat-label">High</div>
+            <div class="stat-value" id="highCount">0</div>
+          </div>
+          <div class="stat-card medium">
+            <div class="stat-label">Medium</div>
+            <div class="stat-value" id="mediumCount">0</div>
+          </div>
+          <div class="stat-card total">
+            <div class="stat-label">Total</div>
+            <div class="stat-value" id="totalCount">0</div>
+          </div>
+        </div>
+
+        <div class="actions-bar">
+          <input type="text" id="searchInput" class="search-input" placeholder="Search findings...">
+          <button id="exportBtn" class="btn btn-secondary btn-sm">Export</button>
+          <button id="clearFindingsBtn" class="btn btn-danger btn-sm">Clear</button>
+        </div>
+
+        <div id="findingsContainer" class="findings-container">
+          <div class="empty-state">
+            <p>No secrets found on this page.</p>
+            <p class="empty-hint">Origami automatically scans JavaScript files for hardcoded secrets.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Security Analysis Tab -->
+      <div id="security-tab" class="tab-pane">
+        <!-- Security Sub-Tabs -->
+        <nav class="security-sub-tabs">
+          <button class="security-sub-tab-btn active" data-security-tab="headers">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Headers</span>
+            <span id="headers-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="cookies">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="8" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="8" r="1.2" fill="currentColor"/><circle cx="10" cy="15" r="1.2" fill="currentColor"/><circle cx="16" cy="14" r="1.2" fill="currentColor"/></svg> Cookies</span>
+            <span id="cookies-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="vulnerabilities">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Vulnerabilities</span>
+            <span id="vulnerabilities-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="sca">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> SCA</span>
+            <span id="sca-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="exposed-files">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg> Exposed Files</span>
+            <span id="exposed-files-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="session">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg> Session</span>
+            <span id="session-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="auth-flows">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Auth Flows</span>
+            <span id="auth-flows-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="crypto">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/><circle cx="12" cy="16" r="1"/></svg> Crypto</span>
+            <span id="crypto-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="cloud-storage">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg> Cloud</span>
+            <span id="cloud-storage-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="exfiltration">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg> Exfiltration</span>
+            <span id="exfiltration-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+          <button class="security-sub-tab-btn" data-security-tab="websocket">
+            <span class="sub-tab-label"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> WebSocket</span>
+            <span id="websocket-severity-badge" class="sub-tab-badge" style="display: none;"></span>
+          </button>
+        </nav>
+
+        <!-- Scan Progress Bar -->
+        <div id="scanProgressContainer" class="scan-progress-container" style="display: none;">
+          <div class="scan-progress-bar">
+            <div id="scanProgressFill" class="scan-progress-fill" style="width: 0%"></div>
+          </div>
+          <span id="scanProgressLabel" class="scan-progress-label">Initializing...</span>
+        </div>
+
+        <!-- Security Sub-Tab Content -->
+        <div class="security-sub-tab-content">
+
+          <!-- Headers Sub-Tab -->
+          <div id="security-headers-tab" class="security-sub-tab-pane active">
+            <div id="headersResults" class="security-results">
+              <div class="empty-state">
+                <p>Click "Unfold" to scan security headers</p>
+                <p class="empty-hint">Checks for CSP, HSTS, X-Frame-Options, and more</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cookies Sub-Tab -->
+          <div id="security-cookies-tab" class="security-sub-tab-pane">
+            <div id="cookiesResults" class="security-results">
+              <div class="empty-state">
+                <p>Click "Unfold" to scan cookie security</p>
+                <p class="empty-hint">Checks for HttpOnly, Secure, SameSite flags</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Vulnerabilities Sub-Tab -->
+          <div id="security-vulnerabilities-tab" class="security-sub-tab-pane">
+            <div id="vulnerabilitiesResults" class="security-results">
+              <div class="empty-state">
+                <p>Click "Unfold" to scan for vulnerabilities</p>
+                <p class="empty-hint">Detects XSS, SQLi, CSRF, prototype pollution, etc.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- SCA Sub-Tab -->
+          <div id="security-sca-tab" class="security-sub-tab-pane">
+            <div id="scaResults" class="security-results">
+              <div class="empty-state">
+                <p>Click "Unfold" to analyze software composition</p>
+                <p class="empty-hint">Identifies frameworks, libraries, and versions</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Exposed Files Sub-Tab -->
+          <div id="security-exposed-files-tab" class="security-sub-tab-pane">
+            <div id="exposedFilesResults" class="security-results">
+              <div class="empty-state">
+                <p>Click "Unfold" to scan for exposed files</p>
+                <p class="empty-hint">Checks for .git, .env, backups, source maps, directory listing</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Session Sub-Tab -->
+          <div id="security-session-tab" class="security-sub-tab-pane">
+            <div id="sessionResults" class="security-results">
+              <div class="empty-state">
+                <p>Click "Unfold" to analyze session state</p>
+                <p class="empty-hint">Detects JWTs, session cookies, OAuth state, token rotation issues</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Auth Flows Sub-Tab -->
+          <div id="security-auth-flows-tab" class="security-sub-tab-pane">
+            <div id="authFlowsResults" class="security-results">
+              <div class="empty-state">
+                <p>Click "Unfold" to intercept auth flows</p>
+                <p class="empty-hint">Captures OAuth/SAML flows and detects misconfigurations</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Crypto Audit Results -->
+          <div id="security-crypto-tab" class="security-sub-tab-pane">
+            <button id="aiAnalyzeCryptoBtn" class="btn btn-primary btn-sm" style="margin-bottom: 8px; display: none;">AI Analyze Crypto</button>
+            <div id="crypto-llm-results"></div>
+            <div id="crypto-results" class="results-container">
+              <p class="no-results">Run a scan to detect client-side encryption weaknesses.</p>
+            </div>
+          </div>
+
+          <!-- Cloud Storage Results -->
+          <div id="security-cloud-storage-tab" class="security-sub-tab-pane">
+            <button id="aiAnalyzeCloudStorageBtn" class="btn btn-primary btn-sm" style="margin-bottom: 8px; display: none;">AI Analyze Cloud Storage</button>
+            <div id="cloud-storage-llm-results"></div>
+            <div id="cloud-storage-results" class="results-container">
+              <p class="no-results">Run a scan to detect cloud storage exposure.</p>
+            </div>
+          </div>
+
+          <!-- Exfiltration Results -->
+          <div id="security-exfiltration-tab" class="security-sub-tab-pane">
+            <button id="aiAnalyzeExfiltrationBtn" class="btn btn-primary btn-sm" style="margin-bottom: 8px; display: none;">AI Analyze Exfiltration</button>
+            <div id="exfiltration-llm-results"></div>
+            <div id="exfiltration-results" class="results-container">
+              <p class="no-results">Run a scan to detect data exfiltration patterns.</p>
+            </div>
+          </div>
+
+          <!-- WebSocket Results -->
+          <div id="security-websocket-tab" class="security-sub-tab-pane">
+            <button id="aiAnalyzeWebSocketBtn" class="btn btn-primary btn-sm" style="margin-bottom: 8px; display: none;">AI Analyze WebSocket</button>
+            <div id="websocket-llm-results"></div>
+            <div id="websocket-results" class="results-container">
+              <p class="no-results">Run a scan to audit WebSocket connections.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Inventory Tab -->
+      <div id="inventory-tab" class="tab-pane">
+        <nav class="security-sub-tabs">
+          <button class="inventory-sub-tab-btn active" data-inventory-tab="resources">Resources</button>
+          <button class="inventory-sub-tab-btn" data-inventory-tab="bruteforce">Brute Force</button>
+          <button class="inventory-sub-tab-btn" data-inventory-tab="crawler">Crawler</button>
+          <button class="inventory-sub-tab-btn" data-inventory-tab="evolution">Evolution</button>
+        </nav>
+
+        <div class="inventory-sub-tab-content">
+          <!-- Resources Sub-Tab -->
+          <div id="inventory-resources-tab" class="inventory-sub-tab-pane active">
+            <div class="inventory-header">
+              <h2>Resource Inventory</h2>
+              <div class="inventory-actions">
+                <button id="inventoryViewToggle" class="btn btn-secondary btn-sm" title="Toggle flat/tree view">
+                  <span id="viewToggleLabel">Flat View</span>
+                </button>
+                <button id="refreshInventoryBtn" class="btn btn-secondary btn-sm">Refresh</button>
+                <button id="expandAllBtn" class="btn btn-secondary btn-sm">Expand All</button>
+                <button id="collapseAllBtn" class="btn btn-secondary btn-sm">Collapse All</button>
+                <button id="exportInventoryBtn" class="btn btn-secondary btn-sm" title="Export inventory as JSON">Export</button>
+              </div>
+            </div>
+
+            <div class="inventory-stats">
+              <div class="stat-box">
+                <span class="stat-value" id="inventoryTotalResources">0</span>
+                <span class="stat-label">Resources</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="inventoryExternalDomains">0</span>
+                <span class="stat-label">External</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="inventoryFindings">0</span>
+                <span class="stat-label">Findings</span>
+              </div>
+            </div>
+
+            <div class="inventory-filter">
+              <input type="text" id="inventorySearch" class="search-input" placeholder="Filter resources..." style="flex: 1;">
+              <select id="inventoryTypeFilter" class="select-field" style="min-width: 110px;">
+                <option value="all">All Types</option>
+                <option value="document">Documents</option>
+                <option value="script">Scripts</option>
+                <option value="stylesheet">Stylesheets</option>
+                <option value="image">Images</option>
+                <option value="fetch">API/Fetch</option>
+                <option value="link">Links</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div id="inventoryTree" class="inventory-tree">
+              <div class="empty-state">
+                <p>No resource inventory available.</p>
+                <p class="empty-hint">Click "Unfold" to scan and collect page resources.</p>
+              </div>
+            </div>
+
+            <!-- Resource Detail Panel -->
+            <div id="resourceDetailPanel" class="resource-detail-panel" style="display: none;">
+              <div class="detail-panel-header">
+                <h3 id="resourceDetailTitle">Resource Details</h3>
+                <button id="closeDetailPanelBtn" class="btn-icon">&times;</button>
+              </div>
+              <div id="resourceDetailBody" class="detail-panel-body"></div>
+            </div>
+          </div>
+
+          <!-- Brute Force Sub-Tab -->
+          <div id="inventory-bruteforce-tab" class="inventory-sub-tab-pane">
+            <div class="bf-scanner-container">
+              <div class="bf-header">
+                <h2>Brute Force Scanner</h2>
+                <span class="bf-disclaimer">Authorized testing only</span>
+              </div>
+
+              <!-- Scan Target -->
+              <div class="bf-control-group">
+                <label class="bf-label" for="bfTargetUrl">Target URL</label>
+                <input type="text" id="bfTargetUrl" class="bf-input" placeholder="https://example.com">
+              </div>
+
+              <!-- Wordlist Selection -->
+              <div class="bf-control-group">
+                <label class="bf-label">Wordlist</label>
+                <div class="bf-radio-group">
+                  <label class="bf-radio-label">
+                    <input type="radio" name="bfWordlistType" value="builtin" checked> Built-in (~500 paths)
+                  </label>
+                  <label class="bf-radio-label">
+                    <input type="radio" name="bfWordlistType" value="custom"> Custom
+                  </label>
+                </div>
+                <textarea id="bfCustomWordlist" class="bf-textarea" placeholder="Enter one path per line..." style="display: none;"></textarea>
+              </div>
+
+              <!-- Scan Mode -->
+              <div class="bf-control-group">
+                <label class="bf-label">Scan Mode</label>
+                <div class="bf-radio-group">
+                  <label class="bf-radio-label">
+                    <input type="radio" name="bfScanMode" value="directories"> Directories
+                  </label>
+                  <label class="bf-radio-label">
+                    <input type="radio" name="bfScanMode" value="files"> Files
+                  </label>
+                  <label class="bf-radio-label">
+                    <input type="radio" name="bfScanMode" value="both" checked> Both
+                  </label>
+                </div>
+              </div>
+
+              <!-- Extensions -->
+              <div class="bf-control-group">
+                <label class="bf-label" for="bfExtensions">Extensions (comma-separated)</label>
+                <input type="text" id="bfExtensions" class="bf-input" placeholder=".php,.asp,.aspx,.jsp,.html,.js,.json,.xml,.txt,.bak,.old,.sql" value=".php,.html,.txt,.json,.bak">
+              </div>
+
+              <!-- Concurrency -->
+              <div class="bf-control-group">
+                <label class="bf-label" for="bfConcurrency">Concurrency: <span id="bfConcurrencyValue">10</span></label>
+                <input type="range" id="bfConcurrency" class="bf-slider" min="1" max="50" value="10">
+              </div>
+
+              <!-- Timeout -->
+              <div class="bf-control-group">
+                <label class="bf-label" for="bfTimeout">Timeout (ms): <span id="bfTimeoutValue">5000</span></label>
+                <input type="range" id="bfTimeout" class="bf-slider" min="1000" max="15000" value="5000" step="500">
+              </div>
+
+              <!-- Follow Redirects -->
+              <div class="bf-control-group bf-inline">
+                <label class="bf-checkbox-label">
+                  <input type="checkbox" id="bfFollowRedirects"> Follow Redirects
+                </label>
+              </div>
+
+              <!-- Status Codes -->
+              <div class="bf-control-group">
+                <label class="bf-label">Match Status Codes</label>
+                <div class="bf-checkbox-group">
+                  <label class="bf-checkbox-label"><input type="checkbox" class="bf-status-code" value="200" checked> 200 OK</label>
+                  <label class="bf-checkbox-label"><input type="checkbox" class="bf-status-code" value="301" checked> 301 Redirect</label>
+                  <label class="bf-checkbox-label"><input type="checkbox" class="bf-status-code" value="302" checked> 302 Redirect</label>
+                  <label class="bf-checkbox-label"><input type="checkbox" class="bf-status-code" value="403" checked> 403 Forbidden</label>
+                  <label class="bf-checkbox-label"><input type="checkbox" class="bf-status-code" value="500"> 500 Server Error</label>
+                </div>
+              </div>
+
+              <!-- Auto Add to Inventory -->
+              <div class="bf-control-group bf-inline">
+                <label class="bf-checkbox-label">
+                  <input type="checkbox" id="bfAutoInventory"> Auto Add to Inventory
+                </label>
+              </div>
+
+              <!-- Start/Stop + Progress -->
+              <div class="bf-actions">
+                <button id="bfStartBtn" class="btn btn-primary">Start Scan</button>
+                <button id="bfStopBtn" class="btn btn-secondary" style="display: none;">Stop Scan</button>
+              </div>
+
+              <div id="bfProgressContainer" class="bf-progress-container" style="display: none;">
+                <div class="bf-progress-bar">
+                  <div id="bfProgressFill" class="bf-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="bf-progress-text">
+                  <span id="bfProgressText">0 / 0</span>
+                  <span id="bfProgressPercent">0%</span>
+                </div>
+              </div>
+
+              <!-- Results -->
+              <div id="bfResultsContainer" class="bf-results-container" style="display: none;">
+                <div class="bf-results-header">
+                  <h3>Results <span id="bfResultsCount" class="bf-results-badge">0</span></h3>
+                  <div style="display: flex; gap: 6px;">
+                    <button id="bfAddAllBtn" class="btn btn-primary btn-sm">Add All to Inventory</button>
+                    <button id="bfClearResultsBtn" class="btn btn-secondary btn-sm">Clear Results</button>
+                  </div>
+                </div>
+                <div class="bf-results-table-wrapper">
+                  <table class="bf-results-table">
+                    <thead>
+                      <tr>
+                        <th>Path</th>
+                        <th>Status</th>
+                        <th>Size</th>
+                        <th>Content-Type</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="bfResultsBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Crawler Sub-Tab -->
+          <div id="inventory-crawler-tab" class="inventory-sub-tab-pane">
+            <div class="crawler-container">
+              <div class="crawler-header">
+                <h3>Web Crawler</h3>
+                <span class="crawler-disclaimer">Authorized testing only</span>
+              </div>
+
+              <!-- Target URL -->
+              <div class="crawler-control-group">
+                <label class="crawler-label" for="crawlerTargetUrl">Start URL</label>
+                <input type="text" id="crawlerTargetUrl" class="crawler-input" placeholder="https://example.com">
+              </div>
+
+              <!-- Max Depth -->
+              <div class="crawler-control-group">
+                <label class="crawler-label" for="crawlerMaxDepth">Max Depth: <span id="crawlerMaxDepthValue">2</span></label>
+                <input type="range" id="crawlerMaxDepth" class="crawler-slider" min="1" max="5" value="2">
+              </div>
+
+              <!-- Follow External Links -->
+              <div class="crawler-control-group crawler-inline">
+                <label class="crawler-checkbox-label">
+                  <input type="checkbox" id="crawlerFollowExternal"> Follow External Links
+                </label>
+              </div>
+
+              <!-- Auto Add to Inventory -->
+              <div class="crawler-control-group crawler-inline">
+                <label class="crawler-checkbox-label">
+                  <input type="checkbox" id="crawlerAutoInventory"> Auto Add to Inventory
+                </label>
+              </div>
+
+              <!-- Concurrency -->
+              <div class="crawler-control-group">
+                <label class="crawler-label" for="crawlerConcurrency">Concurrency: <span id="crawlerConcurrencyValue">10</span></label>
+                <input type="range" id="crawlerConcurrency" class="crawler-slider" min="1" max="50" value="10">
+              </div>
+
+              <!-- Timeout -->
+              <div class="crawler-control-group">
+                <label class="crawler-label" for="crawlerTimeout">Timeout (ms): <span id="crawlerTimeoutValue">5000</span></label>
+                <input type="range" id="crawlerTimeout" class="crawler-slider" min="1000" max="15000" value="5000" step="500">
+              </div>
+
+              <!-- Status Codes -->
+              <div class="crawler-control-group">
+                <label class="crawler-label">Match Status Codes</label>
+                <div class="crawler-checkbox-group">
+                  <label class="crawler-checkbox-label"><input type="checkbox" class="crawler-status-code" value="200" checked> 200 OK</label>
+                  <label class="crawler-checkbox-label"><input type="checkbox" class="crawler-status-code" value="301" checked> 301 Redirect</label>
+                  <label class="crawler-checkbox-label"><input type="checkbox" class="crawler-status-code" value="302" checked> 302 Redirect</label>
+                  <label class="crawler-checkbox-label"><input type="checkbox" class="crawler-status-code" value="403" checked> 403 Forbidden</label>
+                </div>
+              </div>
+
+              <!-- Start/Stop + Progress -->
+              <div class="crawler-actions">
+                <button id="crawlerStartBtn" class="btn btn-primary">Start Crawl</button>
+                <button id="crawlerStopBtn" class="btn btn-secondary" style="display: none;">Stop Crawl</button>
+              </div>
+
+              <div id="crawlerProgressContainer" class="crawler-progress-container" style="display: none;">
+                <div class="crawler-progress-bar">
+                  <div id="crawlerProgressFill" class="crawler-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="crawler-progress-text">
+                  <span id="crawlerProgressText">0 / 0 discovered</span>
+                  <span id="crawlerProgressPercent">0%</span>
+                </div>
+                <div class="crawler-progress-stats">
+                  <span>Max depth reached: <strong id="crawlerMaxDepthReached">0</strong></span>
+                  <span>External: <strong id="crawlerExternalCount">0</strong></span>
+                </div>
+              </div>
+
+              <!-- Results -->
+              <div id="crawlerResultsContainer" class="crawler-results-container" style="display: none;">
+                <div class="crawler-results-header">
+                  <h3>Results <span id="crawlerResultsCount" class="crawler-results-badge">0</span></h3>
+                  <div style="display: flex; gap: 6px;">
+                    <button id="crawlerAddAllBtn" class="btn btn-primary btn-sm">Add All to Inventory</button>
+                    <button id="crawlerClearResultsBtn" class="btn btn-secondary btn-sm">Clear Results</button>
+                  </div>
+                </div>
+                <div class="crawler-results-table-wrapper">
+                  <table class="crawler-results-table">
+                    <thead>
+                      <tr>
+                        <th>URL</th>
+                        <th>Status</th>
+                        <th>Depth</th>
+                        <th>Type</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="crawlerResultsBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Evolution Sub-Tab -->
+          <div id="inventory-evolution-tab" class="inventory-sub-tab-pane">
+            <div class="actions-bar" style="margin-bottom: 12px;">
+              <button id="saveBaselineBtn" class="btn btn-primary">Save Baseline</button>
+              <button id="compareBaselineBtn" class="btn btn-secondary">Compare</button>
+            </div>
+            <div id="baselineInfo" class="security-results" style="margin-bottom: 12px;"></div>
+            <div id="baselineDiffResults" class="security-results">
+              <div class="empty-state">
+                <p>No baseline saved yet.</p>
+                <p class="empty-hint">Save a baseline to track how the attack surface evolves over time.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attack Lab Tab -->
+      <div id="attack-lab-tab" class="tab-pane">
+        <nav class="security-sub-tabs">
+          <button class="attack-lab-sub-tab-btn active" data-attack-tab="chains">Chains</button>
+          <button class="attack-lab-sub-tab-btn" data-attack-tab="workbench">Workbench</button>
+          <button class="attack-lab-sub-tab-btn" data-attack-tab="poc">PoC Generator</button>
+          <button class="attack-lab-sub-tab-btn" data-attack-tab="intent">Intent</button>
+          <button class="attack-lab-sub-tab-btn" data-attack-tab="cookies">Cookies</button>
+        </nav>
+        <div class="attack-lab-sub-tab-content">
+          <!-- Chains Sub-Tab -->
+          <div id="attack-lab-chains-tab" class="attack-lab-sub-tab-pane active">
+            <div class="summary-stats">
+              <div class="stat-card">
+                <div class="stat-label">Total Chains</div>
+                <div class="stat-value" id="chainsTotal">0</div>
+              </div>
+              <div class="stat-card critical">
+                <div class="stat-label">Highest Severity</div>
+                <div class="stat-value" id="chainsHighestSeverity">--</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Auto-Detected</div>
+                <div class="stat-value" id="chainsAutoDetected">0</div>
+              </div>
+            </div>
+            <div id="chainsContainer" class="security-results">
+              <div class="empty-state">
+                <p>No attack chains detected yet.</p>
+                <p class="empty-hint">Run "Unfold" to detect attack chains. Correlation Engine analyzes findings for exploitable chains.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Workbench Sub-Tab -->
+          <div id="attack-lab-workbench-tab" class="attack-lab-sub-tab-pane">
+            <div class="workbench-layout">
+              <div class="workbench-panel workbench-panel-left">
+                <div class="workbench-panel-header">Available Findings</div>
+                <div id="workbenchFindings" class="workbench-panel-body">
+                  <div class="empty-state">
+                    <p>No findings available.</p>
+                    <p class="empty-hint">Run "Unfold" to populate findings for chain building.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="workbench-panel workbench-panel-center">
+                <div class="workbench-panel-header">Chain Builder</div>
+                <div id="chainBuilderCanvas" class="workbench-panel-body workbench-drop-zone">
+                  <div class="empty-state">
+                    <p>Drag findings here to build attack chain</p>
+                  </div>
+                </div>
+              </div>
+              <div class="workbench-panel workbench-panel-right">
+                <div class="workbench-panel-header">AI PoC</div>
+                <div id="workbenchPocOutput" class="workbench-panel-body">
+                  <div class="empty-state">
+                    <p>Build a chain and click "Analyze Chain" to generate AI PoC output.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="actions-bar" style="margin-top: 8px;">
+              <button id="analyzeChainBtn" class="btn btn-primary">Analyze Chain</button>
+              <button id="clearChainBtn" class="btn btn-secondary">Clear</button>
+            </div>
+          </div>
+
+          <!-- PoC Generator Sub-Tab -->
+          <div id="attack-lab-poc-tab" class="attack-lab-sub-tab-pane">
+            <div class="poc-controls">
+              <div class="form-group">
+                <label>Select Finding:</label>
+                <select id="pocFindingSelect" class="select-field">
+                  <option value="">-- Select a finding --</option>
+                </select>
+              </div>
+              <button id="generatePocBtn" class="btn btn-primary">Generate PoC</button>
+            </div>
+            <nav class="security-sub-tabs poc-tier-tabs">
+              <button class="poc-tier-btn active" data-poc-tier="basic">Basic</button>
+              <button class="poc-tier-btn" data-poc-tier="intermediate">Intermediate</button>
+              <button class="poc-tier-btn" data-poc-tier="advanced">Advanced</button>
+            </nav>
+            <div id="pocOutputContainer" class="security-results poc-output">
+              <div class="empty-state">
+                <p>No PoC generated yet.</p>
+                <p class="empty-hint">Select a finding and generate context-aware exploitation proof-of-concept.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Intent Engine -->
+          <div id="attack-lab-intent-tab" class="attack-lab-sub-tab-pane">
+            <div class="intent-engine-container">
+              <div class="intent-header">
+                <h3>Finding Intent Engine</h3>
+                <p class="intent-description">AI-powered scoring that evaluates findings by exploitability, business impact, PoC difficulty, and program context.</p>
+              </div>
+              <div class="intent-scope-section">
+                <label for="program-scope-input">Bug Bounty Program Scope (optional)</label>
+                <textarea id="program-scope-input" placeholder="Paste bug bounty program rules/scope here..." rows="4"></textarea>
+              </div>
+              <div class="intent-actions">
+                <button id="evaluate-intent-btn" class="action-btn btn btn-primary">Evaluate Findings</button>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="intent-use-llm"> <span>Enhance with AI</span>
+                </label>
+              </div>
+              <div id="intent-summary" class="intent-summary" style="display:none;"></div>
+              <div id="intent-results" class="results-container">
+                <p class="no-results">Click "Evaluate Findings" to score and prioritize all findings.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cookie Editor Sub-Tab -->
+          <div id="attack-lab-cookies-tab" class="attack-lab-sub-tab-pane">
+            <div class="cookie-editor-container">
+              <div class="cookie-editor-toolbar">
+                <div class="cookie-editor-toolbar-left">
+                  <button id="cookieEditorRefresh" class="btn btn-secondary btn-sm" title="Refresh cookies">Refresh</button>
+                  <button id="cookieEditorAdd" class="btn btn-primary btn-sm" title="Add new cookie">+ Add</button>
+                  <button id="cookieEditorDeleteAll" class="btn btn-danger btn-sm" title="Delete all cookies for this domain">Delete All</button>
+                </div>
+                <div class="cookie-editor-toolbar-right">
+                  <button id="cookieEditorImport" class="btn btn-secondary btn-sm" title="Import cookies from JSON">Import</button>
+                  <button id="cookieEditorExport" class="btn btn-secondary btn-sm" title="Export cookies to JSON">Export</button>
+                </div>
+              </div>
+              <div class="cookie-editor-search">
+                <input type="text" id="cookieEditorSearchInput" class="input-field" placeholder="Filter cookies by name, domain, or value...">
+              </div>
+              <div class="cookie-editor-count">
+                <span id="cookieEditorCount">0 cookies</span>
+                <span id="cookieEditorDomain" class="text-secondary"></span>
+              </div>
+              <div id="cookieEditorList" class="cookie-editor-list">
+                <div class="empty-state">
+                  <p>No cookies loaded.</p>
+                  <p class="empty-hint">Switch to this tab to auto-load cookies for the current domain.</p>
+                </div>
+              </div>
+            </div>
+
+            <div id="cookieEditModal" class="cookie-edit-modal" style="display: none;">
+              <div class="cookie-edit-modal-content">
+                <div class="cookie-edit-modal-header">
+                  <h3 id="cookieEditModalTitle">Edit Cookie</h3>
+                  <button id="cookieEditModalClose" class="cookie-edit-modal-close">&times;</button>
+                </div>
+                <div class="cookie-edit-modal-body">
+                  <div class="form-group">
+                    <label for="cookieEditName">Name</label>
+                    <input type="text" id="cookieEditName" class="input-field" placeholder="cookie_name">
+                  </div>
+                  <div class="form-group">
+                    <label for="cookieEditValue">Value</label>
+                    <textarea id="cookieEditValue" class="textarea-field" rows="3" placeholder="cookie_value"></textarea>
+                  </div>
+                  <div class="form-group">
+                    <label for="cookieEditDomain">Domain</label>
+                    <input type="text" id="cookieEditDomain" class="input-field" placeholder=".example.com">
+                  </div>
+                  <div class="form-group">
+                    <label for="cookieEditPath">Path</label>
+                    <input type="text" id="cookieEditPath" class="input-field" placeholder="/" value="/">
+                  </div>
+                  <div class="cookie-edit-row">
+                    <div class="form-group" style="flex: 1;">
+                      <label for="cookieEditSameSite">SameSite</label>
+                      <select id="cookieEditSameSite" class="select-field">
+                        <option value="no_restriction">None</option>
+                        <option value="lax" selected>Lax</option>
+                        <option value="strict">Strict</option>
+                      </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                      <label for="cookieEditExpiration">Expiration</label>
+                      <input type="datetime-local" id="cookieEditExpiration" class="input-field">
+                    </div>
+                  </div>
+                  <div class="cookie-edit-flags">
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="cookieEditSecure"> <span>Secure</span>
+                    </label>
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="cookieEditHttpOnly"> <span>HttpOnly</span>
+                    </label>
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="cookieEditSession"> <span>Session (no expiry)</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="cookie-edit-modal-footer">
+                  <button id="cookieEditSave" class="btn btn-primary">Save</button>
+                  <button id="cookieEditCancel" class="btn btn-secondary">Cancel</button>
+                  <button id="cookieEditDelete" class="btn btn-danger" style="margin-left: auto;">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Repeater Tab -->
+      <div id="repeater-tab" class="tab-pane">
+
+        <!-- Request Section -->
+        <div class="repeater-request-section">
+          <h3>Request</h3>
+
+          <!-- URL Bar: method + url + send -->
+          <div class="repeater-url-bar">
+            <select id="repeater-method" class="select-field">
+              <option value="GET" selected>GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="DELETE">DELETE</option>
+              <option value="PATCH">PATCH</option>
+              <option value="HEAD">HEAD</option>
+              <option value="OPTIONS">OPTIONS</option>
+            </select>
+            <input id="repeater-url" class="input-field" type="text" placeholder="Enter request URL...">
+            <button id="repeater-send-btn" class="btn btn-primary">Send</button>
+          </div>
+          <div id="repeater-url-error" class="repeater-validation-error" style="display: none;"></div>
+
+          <!-- Headers Section -->
+          <div class="repeater-headers-section">
+            <div class="repeater-section-header">
+              <h3>Headers</h3>
+              <button id="repeater-add-header-btn" class="btn btn-sm btn-secondary">+ Add Header</button>
+            </div>
+            <div id="repeater-headers-container">
+              <!-- Header rows (.repeater-header-row) are added dynamically by JS -->
+            </div>
+          </div>
+
+          <!-- Body Section (hidden by default for GET) -->
+          <div id="repeater-body-section" style="display: none;">
+            <h3>Body</h3>
+            <div class="repeater-body-modes">
+              <button id="repeater-body-mode-raw" class="repeater-body-mode-btn active">Raw</button>
+              <button id="repeater-body-mode-json" class="repeater-body-mode-btn">JSON</button>
+              <button id="repeater-body-mode-form-data" class="repeater-body-mode-btn">Form Data</button>
+            </div>
+            <div class="repeater-body-editor">
+              <textarea id="repeater-body" class="textarea-field" rows="6" placeholder="Request body..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="repeater-loading" class="repeater-loading" style="display: none;">
+          <span class="repeater-loading-spinner"></span> Sending request...
+        </div>
+
+        <!-- Response Section -->
+        <div class="repeater-response-section">
+          <h3>Response</h3>
+
+          <!-- Response Meta: status + time -->
+          <div class="repeater-response-meta">
+            <span>Status: </span>
+            <span id="repeater-response-status"></span>
+            <span class="repeater-response-time-label">Time: </span>
+            <span id="repeater-response-time"></span>
+          </div>
+
+          <!-- Response Headers (collapsible) -->
+          <div id="repeater-response-headers">
+            <button id="repeater-response-headers-toggle" class="repeater-response-headers-toggle">
+              Response Headers &#9660;
+            </button>
+            <div id="repeater-response-headers-content" class="repeater-response-headers-content">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <!-- Response Body -->
+          <pre id="repeater-response-body" class="repeater-response-body"></pre>
+        </div>
+
+        <!-- Curl Import/Export Section -->
+        <div class="repeater-curl-actions-section">
+          <h3>cURL</h3>
+          <div class="actions-bar">
+            <button id="repeater-import-curl-btn" class="btn btn-sm btn-secondary">Import cURL</button>
+            <button id="repeater-export-curl-btn" class="btn btn-sm btn-secondary">Export cURL</button>
+          </div>
+
+          <!-- Curl Import (inline collapsible, NOT a modal) -->
+          <div id="repeater-curl-section" style="display: none;">
+            <div class="form-group">
+              <label>Paste cURL command:</label>
+              <textarea id="repeater-curl-input" class="textarea-field" rows="4" placeholder="curl -X GET https://example.com/api ..."></textarea>
+            </div>
+            <div class="actions-bar">
+              <button id="repeater-curl-import-confirm-btn" class="btn btn-sm btn-primary">Import</button>
+              <button id="repeater-curl-import-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
+            </div>
+            <div id="repeater-curl-import-error" class="repeater-error" style="display: none;"></div>
+          </div>
+
+          <!-- Curl Export Output -->
+          <pre id="repeater-curl-output" class="repeater-curl-output" style="display: none;"></pre>
+        </div>
+
+        <!-- History Section -->
+        <div class="repeater-history-section">
+          <div class="repeater-section-header">
+            <h3>History</h3>
+            <button id="repeater-clear-history-btn" class="btn btn-sm btn-danger">Clear History</button>
+          </div>
+          <div id="repeater-history-list">
+            <!-- History items (.repeater-history-item) are added dynamically by JS -->
+          </div>
+          <div id="repeater-history-empty" class="empty-state">
+            <p>No requests in history.</p>
+            <p class="empty-hint">Send a request to start building your history.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- GraphQL Tab -->
+      <div id="graphql-tab" class="tab-pane">
+        <div class="summary-stats">
+          <div class="stat-card">
+            <div class="stat-label">Endpoints</div>
+            <div class="stat-value" id="graphqlEndpoints">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Types</div>
+            <div class="stat-value" id="graphqlTypes">0</div>
+          </div>
+          <div class="stat-card critical">
+            <div class="stat-label">Issues</div>
+            <div class="stat-value" id="graphqlIssues">0</div>
+          </div>
+        </div>
+
+        <div class="graphql-section">
+          <h3>Schema Tree</h3>
+          <div id="graphqlSchemaTree" class="security-results">
+            <div class="empty-state">
+              <p>No GraphQL schema detected.</p>
+              <p class="empty-hint">Run "Unfold" to detect and map GraphQL endpoints.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="graphql-section">
+          <h3>Issues</h3>
+          <div id="graphqlIssuesList" class="security-results">
+            <div class="empty-state">
+              <p>No issues found.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="graphql-section">
+          <h3>Query Builder</h3>
+          <div class="form-group">
+            <textarea id="graphqlQueryEditor" class="textarea-field" rows="6" placeholder="{ __schema { types { name } } }"></textarea>
+          </div>
+          <button id="executeGraphqlBtn" class="btn btn-primary">Execute</button>
+          <div id="graphqlResults" class="security-results" style="margin-top: 12px;">
+            <div class="empty-state">
+              <p>Execute a query to see results.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Templates Tab -->
+      <div id="templates-tab" class="tab-pane">
+        <div class="templates-header">
+          <h2>Detection Templates</h2>
+          <div class="templates-actions">
+            <button id="addTemplateBtn" class="btn btn-primary btn-sm">New Template</button>
+            <button id="importTemplatesBtn" class="btn btn-secondary btn-sm">Import</button>
+            <button id="exportTemplatesBtn" class="btn btn-secondary btn-sm">Export</button>
+          </div>
+        </div>
+        <div class="templates-stats">
+          <div class="stat-box">
+            <span class="stat-value" id="totalTemplates">0</span>
+            <span class="stat-label">Total</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="enabledTemplates">0</span>
+            <span class="stat-label">Enabled</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="builtinTemplates">0</span>
+            <span class="stat-label">Built-in</span>
+          </div>
+        </div>
+        <div id="templatesList" class="templates-list-container">
+          <div class="empty-state">
+            <p>No detection templates</p>
+            <p class="empty-hint">Templates use YAML-inspired rules to detect security issues</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plugins Tab -->
+      <div id="plugins-tab" class="tab-pane">
+        <div class="plugins-header">
+          <h2>Plugin Manager</h2>
+          <div class="plugins-actions">
+            <button id="importPluginBtn" class="btn btn-primary btn-sm">Import Plugin</button>
+            <input type="file" id="pluginFileInput" accept=".json" style="display: none;">
+          </div>
+        </div>
+
+        <div class="plugins-stats">
+          <div class="stat-box">
+            <span class="stat-value" id="pluginsTotalCount">0</span>
+            <span class="stat-label">Total</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="pluginsEnabledCount">0</span>
+            <span class="stat-label">Enabled</span>
+          </div>
+        </div>
+
+        <div id="pluginsContainer" class="plugins-container">
+          <div class="empty-state">
+            <p>No plugins installed</p>
+            <p class="empty-hint">Import a plugin JSON file to extend Origami with custom analyzers.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Tab -->
+      <div id="settings-tab" class="tab-pane">
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="notifications">
+            <span class="settings-chevron">&#9660;</span>
+            Notifications
+          </h3>
+          <div class="settings-section-content collapsed" id="notifications-content">
+            <label class="checkbox-label">
+              <input type="checkbox" id="notificationsEnabled">
+              <span>Enable browser notifications</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="badgeEnabled">
+              <span>Show badge counter</span>
+            </label>
+            <div class="form-group" style="margin-left: 24px; margin-top: 8px;">
+              <label>Badge Count Filter:</label>
+              <select id="badgeCountFilter" class="select-field">
+                <option value="all">All findings</option>
+                <option value="critical">Critical only</option>
+                <option value="critical_high" selected>Critical + High</option>
+                <option value="critical_high_medium">Critical + High + Medium</option>
+              </select>
+              <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                Controls which severity levels are counted in the badge.
+              </p>
+            </div>
+            <div class="form-group" style="margin-left: 24px; margin-top: 8px;">
+              <label>Badge Finding Types:</label>
+              <div style="margin-top: 4px;">
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeSecrets" checked> <span>Secrets</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeHeaders" checked> <span>Headers</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeCookies" checked> <span>Cookies</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeVulnerabilities" checked> <span>Vulnerabilities</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeSensitiveFiles" checked> <span>Exposed Files</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeSession" checked> <span>Session</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeOAuth" checked> <span>OAuth/SAML</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeGraphQL" checked> <span>GraphQL</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeCrypto" checked> <span>Crypto</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeCloudStorage" checked> <span>Cloud Storage</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeExfiltration" checked> <span>Exfiltration</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="badgeTypeWebSocket" checked> <span>WebSocket</span></label>
+              </div>
+              <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                Select which finding types are counted in the badge.
+              </p>
+            </div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="autoScanEnabled">
+              <span>Automatic scanning on page load</span>
+            </label>
+            <label class="checkbox-label" style="margin-left: 24px;">
+              <input type="checkbox" id="autoScanSensitiveFiles">
+              <span>Include exposed file scanning in auto-scan</span>
+            </label>
+            <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-left: 24px; margin-top: 4px;">
+              Probes for .git, .env, backups, source maps, and other sensitive files. Makes HTTP requests on every page load when enabled.
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="webhook-integration">
+            <span class="settings-chevron">&#9660;</span>
+            Webhook Integration
+          </h3>
+          <div class="settings-section-content collapsed" id="webhook-integration-content">
+            <label class="checkbox-label">
+              <input type="checkbox" id="webhookEnabled">
+              <span>Enable webhook</span>
+            </label>
+            <div class="form-group">
+              <label>Webhook URL:</label>
+              <input type="text" id="webhookUrl" class="input-field" placeholder="https://example.com/webhook">
+            </div>
+            <div class="form-group">
+              <label>HTTP Method:</label>
+              <select id="webhookMethod" class="select-field">
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Custom Parameters (JSON):</label>
+              <textarea id="webhookParams" class="textarea-field" rows="3" placeholder='{"key": "value"}'></textarea>
+            </div>
+            <button id="testWebhookBtn" class="btn btn-secondary">Test Webhook</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="whitelist">
+            <span class="settings-chevron">&#9660;</span>
+            Whitelist
+          </h3>
+          <div class="settings-section-content collapsed" id="whitelist-content">
+            <div class="form-group">
+              <label>Whitelisted Domains:</label>
+              <div class="tag-input-container">
+                <input type="text" id="whitelistDomainInput" class="input-field" placeholder="example.com">
+                <button id="addDomainBtn" class="btn btn-secondary btn-sm">Add</button>
+              </div>
+              <div id="whitelistedDomains" class="tag-list"></div>
+            </div>
+            <div class="form-group">
+              <label>Whitelisted Patterns:</label>
+              <div class="tag-input-container">
+                <input type="text" id="whitelistPatternInput" class="input-field" placeholder="test_value or /regex/">
+                <button id="addPatternBtn" class="btn btn-secondary btn-sm">Add</button>
+              </div>
+              <div id="whitelistedPatterns" class="tag-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="pattern-manager">
+            <span class="settings-chevron">&#9660;</span>
+            Secret Detection Patterns
+          </h3>
+          <div class="settings-section-content collapsed" id="pattern-manager-content">
+            <div class="patterns-header">
+              <button id="addNewPatternBtn" class="btn btn-primary">
+                Add New Pattern
+              </button>
+            </div>
+
+            <div class="patterns-controls">
+              <input type="text" id="patternSearch" class="search-input" placeholder="Search patterns..." style="flex: 1;">
+              <select id="patternRiskFilter" class="select-field" style="min-width: 120px;">
+                <option value="all">All Severities</option>
+                <option value="CRITICAL">Critical</option>
+                <option value="HIGH">High</option>
+                <option value="MEDIUM">Medium</option>
+              </select>
+              <select id="patternTypeFilter" class="select-field" style="min-width: 120px;">
+                <option value="all">All Types</option>
+                <option value="builtin">Built-in</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+
+            <div class="pattern-stats">
+              <div class="stat-box">
+                <span class="stat-value" id="totalPatterns">0</span>
+                <span class="stat-label">Total Patterns</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="enabledPatterns">0</span>
+                <span class="stat-label">Enabled</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="customPatternsCount">0</span>
+                <span class="stat-label">Custom</span>
+              </div>
+            </div>
+
+            <div id="patternsList" class="patterns-list"></div>
+
+            <div class="bulk-actions">
+              <button id="exportPatternsBtn" class="btn btn-secondary">
+                Export Patterns
+              </button>
+              <button id="importPatternsBtn" class="btn btn-secondary">
+                Import Patterns
+              </button>
+              <button id="resetPatternsBtn" class="btn btn-danger">
+                Reset to Defaults
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="vulnerability-scanning">
+            <span class="settings-chevron">&#9660;</span>
+            Vulnerability Scanning
+          </h3>
+          <div class="settings-section-content collapsed" id="vulnerability-scanning-content">
+            <label class="checkbox-label">
+              <input type="checkbox" id="scanLibrariesEnabled">
+              <span>Scan third-party libraries (CDNs, node_modules, vendor)</span>
+            </label>
+            <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-left: 24px;">
+              When disabled, vulnerability scanner skips known libraries to reduce false positives.
+            </p>
+            <label class="checkbox-label">
+              <input type="checkbox" id="scanMinifiedEnabled">
+              <span>Scan minified files (files with avg line length > 500 chars)</span>
+            </label>
+            <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-left: 24px;">
+              When disabled, vulnerability scanner skips minified files (e.g., jquery.min.js).
+            </p>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="cve-eol-checking">
+            <span class="settings-chevron">&#9660;</span>
+            CVE & End-of-Life Checking
+          </h3>
+          <div class="settings-section-content collapsed" id="cve-eol-checking-content">
+            <label class="checkbox-label">
+              <input type="checkbox" id="cveCheckingEnabled">
+              <span>Enable CVE/EOL checking</span>
+            </label>
+            <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-left: 24px;">
+              Automatically checks detected technologies for known vulnerabilities (CVEs) and end-of-life status.
+              <br><span style="color: var(--high-color);"> Privacy Notice:</span> Makes external API calls to osv.dev and endoflife.date.
+            </p>
+
+            <div id="cveAdvancedSettings" style="margin-left: 24px; margin-top: 12px;">
+              <label class="checkbox-label">
+                <input type="checkbox" id="cveShowEolWarnings">
+                <span>Show End-of-Life warnings</span>
+              </label>
+              <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-left: 24px;">
+                Display warnings for technologies that are no longer supported or reaching end-of-life.
+              </p>
+
+              <div class="form-group" style="margin-top: 12px;">
+                <label style="font-size: 12px; color: var(--text-primary);">Severity Filter:</label>
+                <select id="cveSeverityFilter" class="select-field" style="margin-top: 4px;">
+                  <option value="all">Show All Vulnerabilities</option>
+                  <option value="critical_high">Critical & High Only</option>
+                  <option value="critical">Critical Only</option>
+                </select>
+                <p class="info-text" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                  Filter which vulnerabilities to display based on severity level.
+                </p>
+              </div>
+
+              <div style="margin-top: 16px; padding: 12px; background: var(--bg-tertiary); border-radius: 6px; border: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span style="font-size: 12px; font-weight: 600; color: var(--text-primary);">Cache Statistics</span>
+                  <button id="refreshCacheStatsBtn" class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;"> Refresh</button>
+                </div>
+                <div id="cveCacheStats" style="font-size: 11px; color: var(--text-secondary);">
+                  <div>Entries: <span id="cacheEntries">Loading...</span></div>
+                  <div>Size: <span id="cacheSize">Loading...</span></div>
+                </div>
+                <button id="clearCacheBtn" class="btn btn-secondary" style="width: 100%; margin-top: 8px; font-size: 11px;">
+                   Clear CVE Cache
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="analyzer-toggles">
+            <span class="settings-chevron">&#9660;</span>
+            Analyzer Modules
+          </h3>
+          <div class="settings-section-content collapsed" id="analyzer-toggles-content">
+            <p class="info-text" style="font-size: 12px; margin-bottom: 12px;">
+              Enable or disable individual security analyzer modules. Disabled analyzers will not run during scans.
+            </p>
+            <div class="checkbox-group">
+              <label class="checkbox-label"><input type="checkbox" id="analyzerSession" checked><span>Session Analyzer</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerOAuth" checked><span>OAuth/SAML Interceptor</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerGraphQL" checked><span>GraphQL Mapper</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerCrypto" checked><span>Crypto Auditor</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerCloudStorage" checked><span>Cloud Storage Mapper</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerExfiltration" checked><span>Exfiltration Detector</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerWebSocket" checked><span>WebSocket Auditor</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerCorrelationEngine" checked><span>Correlation Engine</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="analyzerSurfaceTracker" checked><span>Surface Tracker</span></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="llm-prompt-templates">
+            <span class="settings-chevron">&#9660;</span>
+            LLM Prompt Templates
+          </h3>
+          <div class="settings-section-content collapsed" id="llm-prompt-templates-content">
+            <p class="info-text" style="font-size: 12px; margin-bottom: 12px;">
+              Create custom prompt templates for LLM analysis. Use variables like {findings_count}, {url}, {severity} in your prompts.
+            </p>
+
+            <div class="prompt-templates-list" id="promptTemplatesList">
+              <!-- Populated dynamically -->
+            </div>
+
+            <button id="addPromptTemplateBtn" class="btn btn-secondary" style="margin-top: 12px;">
+               Add New Template
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="llm-integration">
+            <span class="settings-chevron">&#9660;</span>
+            LLM Integration
+          </h3>
+          <div class="settings-section-content collapsed" id="llm-integration-content">
+            <!-- Provider Selection -->
+            <div class="form-group">
+              <label>LLM Provider:</label>
+              <select id="llmProvider" class="select-field">
+                <option value="none">Disabled</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="ollama">Ollama (Local)</option>
+              </select>
+            </div>
+
+            <!-- Model Selection (dynamic based on provider) -->
+            <div class="form-group">
+              <label>Model:</label>
+              <select id="llmModel" class="select-field">
+                <option value="">Select a provider first</option>
+              </select>
+            </div>
+
+            <!-- API Key (OpenAI/Anthropic/Gemini) -->
+            <div class="form-group" id="apiKeyGroup" style="display: none;">
+              <label id="apiKeyLabel">API Key:</label>
+              <input type="password" id="llmApiKey" class="input-field" placeholder="sk-...">
+              <p class="info-text" style="font-size: 11px; margin-top: 4px;">
+                Your API key is stored locally and never transmitted except to the LLM provider.
+              </p>
+            </div>
+
+            <!-- Ollama Endpoint -->
+            <div class="form-group" id="ollamaEndpointGroup" style="display: none;">
+              <label>Ollama Endpoint:</label>
+              <input type="text" id="ollamaEndpoint" class="input-field" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434">
+            </div>
+
+            <!-- Test Connection -->
+            <button id="testLLMBtn" class="btn btn-secondary" style="margin-top: 8px;">Test Connection</button>
+            <span id="llmTestResult" style="margin-left: 12px; font-size: 12px;"></span>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="ai-assessment-config">
+            <span class="settings-chevron">&#9660;</span>
+            AI Assessment Configuration
+          </h3>
+          <div class="settings-section-content collapsed" id="ai-assessment-config-content">
+            <p class="info-text" style="font-size: 12px; margin-bottom: 12px;">
+              Configure what the "AI Assess All" button will analyze. This helps you focus on specific findings and manage API costs.
+            </p>
+
+            <!-- Finding Types -->
+            <div class="form-group">
+              <label><strong>Finding Types to Assess:</strong></label>
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessSecrets" checked>
+                  <span> Secrets</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessHeaders" checked>
+                  <span> Security Headers</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessCookies" checked>
+                  <span> Cookies</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessVulnerabilities" checked>
+                  <span> Vulnerabilities</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessSCA" checked>
+                  <span> Software Composition (CVE/EOL)</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessExposedFiles" checked>
+                  <span> Exposed Files</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessSession" checked>
+                  <span> Session Analysis</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessOAuth" checked>
+                  <span> OAuth/SAML</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessGraphQL" checked>
+                  <span> GraphQL</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessCrypto" checked>
+                  <span> Crypto Audit</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessCloudStorage" checked>
+                  <span> Cloud Storage</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessExfiltration" checked>
+                  <span> Exfiltration</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessWebSocket" checked>
+                  <span> WebSocket</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessCorrelationChains" checked>
+                  <span> Attack Chains</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Severity Levels -->
+            <div class="form-group">
+              <label><strong>Severity Levels to Assess:</strong></label>
+              <div class="checkbox-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessCritical" checked>
+                  <span>&#9679; Critical</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessHigh" checked>
+                  <span>&#9679; High</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessMedium">
+                  <span>&#9679; Medium</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessLow">
+                  <span>&#9679; Low</span>
+                </label>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="aiAssessInfo">
+                  <span> Info</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Additional Options -->
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="aiAssessSkipAssessed">
+                <span>Skip findings that already have AI assessments</span>
+              </label>
+              <p class="info-text" style="font-size: 11px; margin-left: 24px; color: var(--text-secondary);">
+                When checked, only new/unassessed findings will be analyzed.
+              </p>
+            </div>
+
+            <!-- Concurrency -->
+            <div class="form-group" style="margin-top: 12px;">
+              <label style="font-weight: 600; font-size: 12px;">Concurrent Assessments: <span id="aiAssessConcurrencyValue">3</span></label>
+              <input type="range" id="aiAssessConcurrency" class="crawler-slider" min="1" max="10" value="3" style="margin-top: 6px;">
+              <p class="info-text" style="font-size: 11px; margin-top: 4px; color: var(--text-secondary);">
+                Number of findings assessed simultaneously. Higher = faster but more API usage. Reduce to 1-2 for rate-limited providers.
+              </p>
+            </div>
+
+            <button id="resetAIAssessConfigBtn" class="btn btn-secondary">Reset to Defaults</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="scoring-config">
+            <span class="settings-chevron">&#9660;</span>
+            Security Score Configuration
+          </h3>
+          <div class="settings-section-content collapsed" id="scoring-config-content">
+            <p class="info-text" style="font-size: 12px; margin-bottom: 12px;">
+              Configure which finding types and severity levels contribute to the security score.
+            </p>
+            <div class="form-group">
+              <label><strong>Finding Types in Score:</strong></label>
+              <div class="checkbox-group">
+                <label class="checkbox-label"><input type="checkbox" id="scoreSecrets" checked><span>Secrets</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreHeaders" checked><span>Security Headers</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreCookies" checked><span>Cookies</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreVulnerabilities" checked><span>Vulnerabilities</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreSensitiveFiles" checked><span>Exposed Files</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreSCA" checked><span>Software Composition (CVE/EOL)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreSession" checked><span>Session</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreOAuth" checked><span>OAuth/SAML</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreGraphQL" checked><span>GraphQL</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreCrypto" checked><span>Crypto</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreCloudStorage" checked><span>Cloud Storage</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreExfiltration" checked><span>Exfiltration</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreWebSocket" checked><span>WebSocket</span></label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label><strong>Severity Levels in Score:</strong></label>
+              <div class="checkbox-group">
+                <label class="checkbox-label"><input type="checkbox" id="scoreCritical" checked><span>Critical</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreHigh" checked><span>High</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreMedium" checked><span>Medium</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="scoreLow" checked><span>Low</span></label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="history-settings">
+            <span class="settings-chevron">&#9660;</span>
+            History
+          </h3>
+          <div class="settings-section-content collapsed" id="history-settings-content">
+            <label class="checkbox-label">
+              <input type="checkbox" id="historyEnabled">
+              <span>Store findings history</span>
+            </label>
+            <button id="clearHistoryBtn" class="btn btn-danger">Clear All History</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-toggle collapsed" data-section="mcp-bridge">
+            <span class="settings-chevron">&#9660;</span>
+            MCP Bridge (Claude Code)
+          </h3>
+          <div class="settings-section-content collapsed" id="mcp-bridge-content">
+            <p style="color: #aaa; font-size: 11px; margin-bottom: 8px;">
+              Connect Origami to Claude Code via MCP (Model Context Protocol).
+              Requires the origami-mcp-server running locally.
+            </p>
+            <label class="checkbox-label">
+              <input type="checkbox" id="mcpBridgeEnabled">
+              <span>Enable MCP Bridge</span>
+            </label>
+            <div class="input-group" style="margin-top: 8px;">
+              <label for="mcpBridgeUrl">WebSocket URL</label>
+              <input type="text" id="mcpBridgeUrl" placeholder="ws://127.0.0.1:9340" value="ws://127.0.0.1:9340">
+            </div>
+            <div class="input-group" style="margin-top: 8px;">
+              <label for="mcpBridgeToken">Auth Token</label>
+              <input type="password" id="mcpBridgeToken" placeholder="Paste token from ~/.origami-mcp/ws-token">
+            </div>
+            <div id="mcpBridgeStatus" style="margin-top: 8px; font-size: 11px; color: #888;">
+              Status: Disconnected
+            </div>
+            <button id="mcpBridgeTestBtn" class="btn btn-secondary" style="margin-top: 8px;">Check Connection</button>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+          <button id="resetSettingsBtn" class="btn btn-secondary">Reset to Defaults</button>
+        </div>
+      </div>
+
+      <!-- Reports Tab -->
+      <div id="reports-tab" class="tab-pane">
+        <div class="reports-section">
+          <h2> Generate Security Report</h2>
+          
+          <!-- Summary Statistics -->
+          <div class="report-summary">
+            <h3>Current Scan Summary</h3>
+            <div class="summary-stats">
+              <div class="stat-card">
+                <div class="stat-label">Secrets</div>
+                <div class="stat-value" id="reportSecretsCount">0</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Vulnerabilities</div>
+                <div class="stat-value" id="reportVulnsCount">0</div>
+              </div>
+              <div class="stat-card critical">
+                <div class="stat-label">Critical</div>
+                <div class="stat-value" id="reportCriticalCount">0</div>
+              </div>
+              <div class="stat-card high">
+                <div class="stat-label">High</div>
+                <div class="stat-value" id="reportHighCount">0</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Content Selection -->
+          <div class="form-group">
+            <label><strong>Include in Report:</strong></label>
+            <div class="checkbox-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeSecrets" checked>
+                <span> Exposed Secrets</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeHeaders" checked>
+                <span> Security Headers</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeCookies" checked>
+                <span> Cookie Security</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeVulnerabilities" checked>
+                <span> Vulnerabilities</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeTechStack" checked>
+                <span> Technology Stack</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeAPITesting">
+                <span> Test Google APIs (automatically)</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeSession" checked>
+                <span> Session Analysis</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeOAuth" checked>
+                <span> OAuth/SAML</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeGraphQL" checked>
+                <span> GraphQL</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeCrypto" checked>
+                <span> Crypto Audit</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeCloudStorage" checked>
+                <span> Cloud Storage</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeExfiltration" checked>
+                <span> Exfiltration</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeWebSocket" checked>
+                <span> WebSocket</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeExposedFiles" checked>
+                <span> Exposed Files</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="includeCorrelationChains" checked>
+                <span> Attack Chains</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Export Formats -->
+          <div class="form-group">
+            <label><strong>Export Formats:</strong></label>
+            <div class="checkbox-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="reportFormatHTML" checked>
+                <span>HTML Report</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="reportFormatMarkdown">
+                <span>Markdown</span>
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" id="reportFormatJSON">
+                <span>JSON (Raw Data)</span>
+              </label>
+            </div>
+          </div>
+          
+          <!-- LLM Analysis Section -->
+          <div class="form-group llm-report-section">
+            <label class="checkbox-label">
+              <input type="checkbox" id="reportIncludeLLM">
+              <span><strong> Include AI-Powered Analysis</strong></span>
+            </label>
+            
+            <div id="reportLLMOptions" style="display: none; margin-left: 24px; margin-top: 12px;">
+              <!-- Template Selection -->
+              <div class="form-group">
+                <label>Analysis Template:</label>
+                <select id="reportLLMTemplate" class="select-field">
+                  <option value="comprehensive">Comprehensive Security Report</option>
+                  <option value="executive">Executive Summary</option>
+                  <option value="technical">Technical Deep Dive</option>
+                  <option value="compliance">Compliance Assessment</option>
+                  <option value="custom">Custom Template...</option>
+                </select>
+              </div>
+              
+              <!-- Analysis Options -->
+              <div class="form-group">
+                <label>Include:</label>
+                <div class="checkbox-group">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="reportLLMSummary" checked>
+                    <span>Executive Summary</span>
+                  </label>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="reportLLMRiskAnalysis" checked>
+                    <span>Risk Analysis</span>
+                  </label>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="reportLLMRemediation" checked>
+                    <span>Remediation Roadmap</span>
+                  </label>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="reportLLMCompliance">
+                    <span>Compliance Assessment</span>
+                  </label>
+                </div>
+              </div>
+              
+              <!-- Individual Finding Analysis -->
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="reportLLMIndividual">
+                  <span>Analyze each finding individually (slower, more detailed)</span>
+                </label>
+                <p class="info-text" style="font-size: 11px; margin-left: 24px;">
+                   This may take several minutes for reports with many findings.
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Generate Button -->
+          <button id="generateReportMainBtn" class="btn btn-primary" style="width: 100%; margin-top: 20px;">
+             Generate Report
+          </button>
+          
+          <!-- Progress -->
+          <div id="reportMainProgress" style="display: none; margin-top: 16px;">
+            <div class="progress-bar">
+              <div class="progress-fill" id="reportMainProgressBar"></div>
+            </div>
+            <p id="reportMainProgressText" class="info-text" style="text-align: center; margin-top: 8px;">Processing...</p>
+          </div>
+          
+          <p class="info-text" style="margin-top: 16px; text-align: center;">
+             Run "Unfold" first to ensure you have the latest scan results.
+          </p>
+        </div>
+      </div>
+
+      <!-- API Testing Tab -->
+      <div id="api-testing-tab" class="tab-pane">
+        <div class="api-testing-section">
+          <h2> API Testing & Discovery</h2>
+          <p class="info-text">Test API keys found by Origami against multiple cloud services to validate permissions and discover infrastructure.</p>
+
+          <!-- Provider Selection -->
+          <div class="provider-selection">
+            <h3>Cloud Provider</h3>
+            <div class="provider-buttons">
+              <button class="provider-btn active" data-provider="google">
+                <span class="provider-icon">&#9679;</span>
+                <span class="provider-name">Google/GCP</span>
+              </button>
+              <button class="provider-btn" data-provider="aws" disabled title="Coming Soon">
+                <span class="provider-icon">&#9679;</span>
+                <span class="provider-name">AWS</span>
+                <span class="badge-soon">Soon</span>
+              </button>
+              <button class="provider-btn" data-provider="azure" disabled title="Coming Soon">
+                <span class="provider-icon">&#9679;</span>
+                <span class="provider-name">Azure</span>
+                <span class="badge-soon">Soon</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Google API Testing Section -->
+          <div id="google-testing-section" class="provider-testing-section active">
+
+            <!-- API Key Selection -->
+            <div class="api-key-selection">
+              <h3>Select API Key to Test</h3>
+              <select id="googleApiKeySelect" class="select-field">
+                <option value="">No Google API keys found - Run "Unfold" first</option>
+              </select>
+              <button id="refreshKeysBtn" class="btn btn-secondary btn-sm" style="margin-left: 8px;">
+                 Refresh
+              </button>
+            </div>
+
+            <!-- Preset Selection -->
+            <div class="preset-selection">
+              <label for="googlePreset">Testing Preset:</label>
+              <select id="googlePreset" class="select-field">
+                <option value="quick">Quick Test (5 APIs)</option>
+                <option value="ai-ml">AI/ML Services (7 APIs)</option>
+                <option value="infrastructure">Infrastructure Discovery (5 APIs)</option>
+                <option value="all" selected>All Services (27 APIs)</option>
+                <option value="custom">Custom Selection</option>
+              </select>
+            </div>
+
+            <!-- Service Categories -->
+            <div class="service-categories">
+
+              <!-- AI/ML Services -->
+              <div class="service-category">
+                <div class="category-header" data-category="ai-ml">
+                  <span class="category-icon">▼</span>
+                  <span class="category-title"> AI/ML Services (7)</span>
+                  <span class="category-badge warning">High Cost</span>
+                </div>
+                <div class="category-services" data-category="ai-ml">
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="vertex-ai" data-impact="CRITICAL" data-cost="VERY_HIGH">
+                    <span class="service-name">Vertex AI / AI Platform</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge cost-very-high">$$$$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="gemini" data-impact="CRITICAL" data-cost="VERY_HIGH">
+                    <span class="service-name">Generative AI (Gemini)</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge cost-very-high">$$$$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="vision" data-impact="HIGH" data-cost="HIGH">
+                    <span class="service-name">Cloud Vision API</span>
+                    <span class="service-badges">
+                      <span class="badge high">HIGH</span>
+                      <span class="badge cost-high">$$$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="speech" data-impact="HIGH" data-cost="VERY_HIGH">
+                    <span class="service-name">Speech-to-Text API</span>
+                    <span class="service-badges">
+                      <span class="badge high">HIGH</span>
+                      <span class="badge cost-very-high">$$$$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="video-intelligence" data-impact="HIGH" data-cost="VERY_HIGH">
+                    <span class="service-name">Video Intelligence API</span>
+                    <span class="service-badges">
+                      <span class="badge high">HIGH</span>
+                      <span class="badge cost-very-high">$$$$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="natural-language" data-impact="HIGH" data-cost="HIGH">
+                    <span class="service-name">Natural Language API</span>
+                    <span class="service-badges">
+                      <span class="badge high">HIGH</span>
+                      <span class="badge cost-high">$$$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="text-to-speech" data-impact="MEDIUM" data-cost="HIGH">
+                    <span class="service-name">Text-to-Speech API</span>
+                    <span class="service-badges">
+                      <span class="badge medium">MEDIUM</span>
+                      <span class="badge cost-high">$$$</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Infrastructure Services -->
+              <div class="service-category">
+                <div class="category-header" data-category="infrastructure">
+                  <span class="category-icon">▼</span>
+                  <span class="category-title"> GCP Infrastructure (5)</span>
+                  <span class="category-badge info">Discovery</span>
+                </div>
+                <div class="category-services" data-category="infrastructure">
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="resource-manager" data-impact="CRITICAL" data-cost="LOW">
+                    <span class="service-name">Cloud Resource Manager</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge info">Lists Projects</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="compute-engine" data-impact="CRITICAL" data-cost="LOW">
+                    <span class="service-name">Compute Engine API</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge warning">Needs Project ID</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="cloud-storage" data-impact="CRITICAL" data-cost="LOW">
+                    <span class="service-name">Cloud Storage API</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge warning">Needs Project ID</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="secret-manager" data-impact="CRITICAL" data-cost="LOW">
+                    <span class="service-name">Secret Manager API</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge warning">Needs Project ID</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="bigquery" data-impact="HIGH" data-cost="MEDIUM">
+                    <span class="service-name">BigQuery API</span>
+                    <span class="service-badges">
+                      <span class="badge high">HIGH</span>
+                      <span class="badge warning">Needs Project ID</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Maps & Location Services -->
+              <div class="service-category">
+                <div class="category-header" data-category="maps">
+                  <span class="category-icon">▼</span>
+                  <span class="category-title"> Maps & Location (8)</span>
+                </div>
+                <div class="category-services collapsed" data-category="maps">
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="maps-static" data-impact="MEDIUM" data-cost="LOW">
+                    <span class="service-name">Maps Static API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="geocoding" data-impact="MEDIUM" data-cost="LOW">
+                    <span class="service-name">Geocoding API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="geolocation" data-impact="MEDIUM" data-cost="LOW">
+                    <span class="service-name">Geolocation API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="directions" data-impact="MEDIUM" data-cost="LOW">
+                    <span class="service-name">Directions API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="places" data-impact="MEDIUM" data-cost="LOW">
+                    <span class="service-name">Places API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="timezone" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">Timezone API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="distance-matrix" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">Distance Matrix API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="elevation" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">Elevation API</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Data & Analytics Services -->
+              <div class="service-category">
+                <div class="category-header" data-category="data">
+                  <span class="category-icon">▼</span>
+                  <span class="category-title"> Data & Analytics (4)</span>
+                </div>
+                <div class="category-services collapsed" data-category="data">
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="translation" data-impact="MEDIUM" data-cost="LOW">
+                    <span class="service-name">Cloud Translation API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="custom-search" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">Custom Search API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="pagespeed" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">PageSpeed Insights API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="books" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">Books API</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Communication & Other Services -->
+              <div class="service-category">
+                <div class="category-header" data-category="other">
+                  <span class="category-icon">▼</span>
+                  <span class="category-title"> Communication & Other (3)</span>
+                </div>
+                <div class="category-services collapsed" data-category="other">
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="fcm" data-impact="HIGH" data-cost="LOW">
+                    <span class="service-name">Firebase Cloud Messaging</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="youtube" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">YouTube Data API</span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="fonts" data-impact="LOW" data-cost="LOW">
+                    <span class="service-name">Google Fonts API</span>
+                  </label>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Discovered Projects -->
+            <div class="discovered-projects">
+              <h3>Discovered GCP Projects <span id="projectCount" class="badge info">0</span></h3>
+              <div id="projectsList" class="projects-list">
+                <p class="info-text">No projects discovered yet. Enable "Cloud Resource Manager" to discover projects.</p>
+              </div>
+              <button id="clearProjectsBtn" class="btn btn-secondary btn-sm" style="display: none;">Clear Cached Projects</button>
+            </div>
+
+            <!-- Cost Safety Settings -->
+            <div class="cost-settings">
+              <label class="checkbox-label">
+                <input type="checkbox" id="skipExpensiveTests" checked>
+                <span> Skip expensive tests (>$0.01 per test)</span>
+              </label>
+            </div>
+
+            <!-- Test Actions -->
+            <div class="test-actions">
+              <div style="display: flex; gap: 12px; width: 100%;">
+                <button id="saveApiTestingSettingsBtn" class="btn btn-secondary" style="flex: 1;">
+                   Save Settings
+                </button>
+                <button id="runSelectedTestsBtn" class="btn btn-primary" style="flex: 2;">
+                   Run Selected Tests
+                </button>
+              </div>
+              <p id="settingsSavedIndicator" class="info-text" style="display: none; text-align: center; color: var(--success-color); font-size: 12px;">
+                ✓ Settings saved successfully
+              </p>
+              <div id="testProgress" class="test-progress" style="display: none;">
+                <div class="progress-bar">
+                  <div id="progressFill" class="progress-fill"></div>
+                </div>
+                <p id="progressText" class="progress-text">Running tests...</p>
+              </div>
+            </div>
+
+            <!-- Test Results -->
+            <div id="testResults" class="test-results" style="display: none;">
+              <h3>Test Results</h3>
+              <div id="resultsContainer"></div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+      <!-- History Tab -->
+      <div id="history-tab" class="tab-pane">
+        <div class="actions-bar">
+          <input type="text" id="historySearchInput" class="search-input" placeholder="Search history...">
+          <select id="historyRiskFilter" class="select-field">
+            <option value="all">All Risks</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+          </select>
+        </div>
+        <div id="historyContainer" class="history-container">
+          <div class="empty-state">
+            <p>No history yet.</p>
+            <p class="empty-hint">Scan results will appear here when history is enabled.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Errors Tab -->
+      <div id="errors-tab" class="tab-pane">
+        <div class="actions-bar">
+          <button id="clearErrorsBtn" class="btn btn-danger btn-sm">Clear All</button>
+          <button id="exportErrorsBtn" class="btn btn-secondary btn-sm">Export Logs</button>
+        </div>
+        <div id="errorsContainer" class="errors-container">
+          <div class="empty-state">
+            <p> No errors logged</p>
+            <p class="empty-hint">Errors and exceptions will appear here for debugging.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- API Validation Modal -->
+  <div id="apiValidationModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Google API Validation Results</h3>
+        <button id="modalCloseBtn" class="modal-close">✕</button>
+      </div>
+      <div id="apiValidationBody" class="modal-body">
+        <div class="loading">Testing API key...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LLM Analysis Modal -->
+  <div id="llmAnalysisModal" class="modal" style="display: none;">
+    <div class="modal-content llm-modal">
+      <div class="modal-header">
+        <h3> LLM Analysis</h3>
+        <button id="llmModalCloseBtn" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Context Selector -->
+        <div class="llm-context-selector">
+          <label>Context:</label>
+          <select id="llmContextSelect" class="select-field">
+            <option value="finding">Finding Only</option>
+            <option value="code">With Code Context</option>
+            <option value="page">Full Page Analysis</option>
+          </select>
+        </div>
+        
+        <!-- Prompt Template Selector -->
+        <div class="llm-prompt-selector">
+          <label>Analysis Type:</label>
+          <select id="llmPromptSelect" class="select-field">
+            <option value="vulnerability">Vulnerability Assessment</option>
+            <option value="remediation">Remediation Advice</option>
+            <option value="exploit">Exploit Recommendations</option>
+            <option value="custom">Custom Question</option>
+          </select>
+        </div>
+        
+        <!-- Custom Question Input -->
+        <div id="customQuestionGroup" style="display: none;">
+          <textarea id="customQuestion" class="textarea-field" rows="3" placeholder="Ask a custom question about this finding..."></textarea>
+        </div>
+        
+        <!-- Analyze Button -->
+        <button id="analyzeLLMBtn" class="btn btn-primary" style="width: 100%; margin: 16px 0;">
+           Analyze with LLM
+        </button>
+        
+        <!-- Loading State -->
+        <div id="llmLoading" class="loading" style="display: none;">
+          Analyzing with LLM...
+        </div>
+        
+        <!-- Results -->
+        <div id="llmResults" class="llm-results"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pattern Editor Modal -->
+  <div id="patternEditorModal" class="modal" style="display: none;">
+    <div class="modal-content pattern-editor">
+      <div class="modal-header">
+        <h3 id="patternEditorTitle">Add New Pattern</h3>
+        <button id="patternEditorCloseBtn" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Pattern Name -->
+        <div class="form-group">
+          <label>Pattern Name: <span class="required">*</span></label>
+          <input type="text" id="patternName" class="input-field" placeholder="e.g., Custom API Key">
+        </div>
+        
+        <!-- Category -->
+        <div class="form-group">
+          <label>Category:</label>
+          <select id="patternCategory" class="select-field">
+            <option value="custom">Custom</option>
+            <option value="cloud">Cloud Credentials</option>
+            <option value="api">API Keys</option>
+            <option value="ai">AI/ML Services</option>
+            <option value="devops">DevOps/Infrastructure</option>
+            <option value="commerce">Commerce/Payments</option>
+            <option value="social">Social/Communication</option>
+            <option value="email">Email/Marketing</option>
+            <option value="oauth2">OAuth2</option>
+            <option value="crypto">Cryptographic</option>
+            <option value="database">Database</option>
+            <option value="generic">Generic</option>
+          </select>
+        </div>
+        
+        <!-- Regex Pattern -->
+        <div class="form-group">
+          <label>Regular Expression: <span class="required">*</span></label>
+          <textarea id="patternRegex" class="textarea-field" rows="3" placeholder="e.g., [A-Z]{3}_[a-f0-9]{32}"></textarea>
+          <p class="info-text">
+            JavaScript regex (without delimiters). Use <a href="https://regex101.com" target="_blank" style="color: var(--info-color);">regex101.com</a> to test.
+          </p>
+        </div>
+        
+        <!-- Risk Level -->
+        <div class="form-group">
+          <label>Risk Level: <span class="required">*</span></label>
+          <select id="patternRisk" class="select-field">
+            <option value="CRITICAL">&#9679; Critical</option>
+            <option value="HIGH">&#9679; High</option>
+            <option value="MEDIUM">&#9679; Medium</option>
+          </select>
+        </div>
+        
+        <!-- Description -->
+        <div class="form-group">
+          <label>Description:</label>
+          <textarea id="patternDescription" class="textarea-field" rows="2" placeholder="Brief description of what this pattern detects"></textarea>
+        </div>
+        
+        <!-- Test Pattern -->
+        <div class="form-group">
+          <label>Test Your Pattern:</label>
+          <div class="pattern-tester">
+            <textarea id="patternTestInput" class="textarea-field" rows="3" placeholder="Paste test strings here to validate your regex..."></textarea>
+            <button id="testPatternBtn" class="btn btn-secondary" style="width: 100%; margin-top: 8px;">
+               Test Pattern
+            </button>
+            <div id="patternTestResults" class="test-results"></div>
+          </div>
+        </div>
+        
+        <!-- Enabled Toggle -->
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="patternEnabled" checked>
+            <span>Pattern Enabled</span>
+          </label>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="modal-actions">
+          <button id="savePatternBtn" class="btn btn-primary">
+             Save Pattern
+          </button>
+          <button id="cancelPatternBtn" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button id="deletePatternBtn" class="btn btn-danger" style="display: none;">
+             Delete Pattern
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prompt Template Editor Modal -->
+  <div id="promptTemplateEditorModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="promptTemplateEditorTitle">Add Prompt Template</h3>
+        <button id="promptTemplateEditorCloseBtn" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Template Name -->
+        <div class="form-group">
+          <label>Template Name: <span class="required">*</span></label>
+          <input type="text" id="promptTemplateName" class="input-field" placeholder="e.g., Executive Summary">
+        </div>
+        
+        <!-- Category -->
+        <div class="form-group">
+          <label>Category:</label>
+          <select id="promptTemplateCategory" class="select-field">
+            <option value="report">Report</option>
+            <option value="finding">Finding Analysis</option>
+            <option value="vulnerability">Vulnerability Assessment</option>
+            <option value="remediation">Remediation</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        
+        <!-- Description -->
+        <div class="form-group">
+          <label>Description:</label>
+          <textarea id="promptTemplateDescription" class="textarea-field" rows="2" placeholder="Brief description of this template"></textarea>
+        </div>
+        
+        <!-- Prompt Text -->
+        <div class="form-group">
+          <label>Prompt Text: <span class="required">*</span></label>
+          <textarea id="promptTemplatePrompt" class="textarea-field" rows="6" placeholder="Your prompt here...
+
+Available variables:
+{findings_count} - Number of findings
+{url} - Target URL
+{severity} - Severity levels
+{critical_count} - Critical findings count
+{high_count} - High findings count
+{domain} - Domain name"></textarea>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="modal-actions">
+          <button id="savePromptTemplateBtn" class="btn btn-primary">
+             Save Template
+          </button>
+          <button id="cancelPromptTemplateBtn" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button id="deletePromptTemplateBtn" class="btn btn-danger" style="display: none;">
+             Delete Template
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report Generation Modal -->
+  <div id="reportModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3> Generate Report</h3>
+        <button id="reportModalCloseBtn" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Format Selection -->
+        <div class="form-group">
+          <label>Format:</label>
+          <div class="checkbox-group">
+            <label class="checkbox-label"><input type="checkbox" id="exportHTML" checked><span>HTML</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="exportMarkdown" checked><span>Markdown</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="exportJSON"><span>JSON (Raw Data)</span></label>
+          </div>
+        </div>
+        
+        <!-- LLM Enhancement Options -->
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="includeLLM">
+            <span>Include LLM-Powered Insights</span>
+          </label>
+        </div>
+        
+        <!-- LLM Options (shown when checkbox enabled) -->
+        <div id="llmReportOptions" style="display: none; margin-left: 24px;">
+          <div class="form-group">
+            <label>LLM Model:</label>
+            <select id="reportLLMModel" class="select-field">
+              <!-- Populated from settings -->
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Include:</label>
+            <div class="checkbox-group">
+              <label class="checkbox-label"><input type="checkbox" id="includeSummary" checked><span>Executive Summary</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="includeRiskAnalysis" checked><span>Risk Analysis</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="includeRemediation" checked><span>Remediation Roadmap</span></label>
+              <label class="checkbox-label"><input type="checkbox" id="includeCompliance"><span>Compliance Assessment</span></label>
+            </div>
+          </div>
+          
+          <p class="info-text" style="font-size: 11px; color: var(--text-secondary);">
+             LLM processing may take 1-3 minutes depending on findings count and model speed.
+          </p>
+        </div>
+        
+        <!-- Generate Button -->
+        <button id="generateReportBtn" class="btn btn-primary" style="width: 100%; margin-top: 16px;">
+           Generate Report
+        </button>
+        
+        <!-- Progress -->
+        <div id="reportProgress" style="display: none; margin-top: 16px;">
+          <div class="progress-bar">
+            <div class="progress-fill" id="reportProgressBar"></div>
+          </div>
+          <p id="reportProgressText" class="info-text" style="text-align: center; margin-top: 8px;">Processing...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template Editor Modal -->
+  <div id="templateEditorModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="templateEditorTitle">New Detection Template</h3>
+        <button id="templateEditorCloseBtn" class="modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Template YAML:</label>
+          <textarea id="templateYamlEditor" class="textarea-field template-yaml-editor" rows="15" placeholder="id: my-template
+info:
+  name: My Detection Rule
+  severity: HIGH
+  cwe: CWE-XXX
+  tags: [tag1, tag2]
+matchers:
+  - type: regex
+    target: url
+    patterns:
+      - 'pattern-here'"></textarea>
+        </div>
+        <div id="templateParseError" class="message message-error" style="display: none;"></div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="templateEnabled" checked>
+            <span>Template Enabled</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button id="saveTemplateBtn" class="btn btn-primary">Save Template</button>
+          <button id="dryRunTemplateBtn" class="btn btn-secondary">Dry Run</button>
+          <button id="cancelTemplateBtn" class="btn btn-secondary">Cancel</button>
+          <button id="deleteTemplateBtn" class="btn btn-danger" style="display: none;">Delete</button>
+        </div>
+        <div id="templateDryRunResults" style="display: none; margin-top: 12px;"></div>
+      </div>
+    </div>
+
+    <!-- Report Malicious Site Modal -->
+    <div id="reportMaliciousModal" class="modal" style="display: none;">
+      <div class="modal-content report-modal">
+        <div class="modal-header">
+          <h3><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg> Report Malicious Site</h3>
+          <button id="reportMaliciousCloseBtn" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- Target URL -->
+          <div class="report-target-url">
+            <label>Target URL:</label>
+            <div id="reportTargetUrl" class="report-url-display"></div>
+          </div>
+
+          <!-- Category Selection -->
+          <div class="report-category-section">
+            <label>Category:</label>
+            <div class="report-category-grid">
+              <button class="report-category-btn active" data-category="phishing">Phishing</button>
+              <button class="report-category-btn" data-category="malware">Malware</button>
+              <button class="report-category-btn" data-category="scam">Scam</button>
+              <button class="report-category-btn" data-category="spam">Spam</button>
+              <button class="report-category-btn" data-category="other">Other</button>
+            </div>
+          </div>
+
+          <!-- Notes -->
+          <div class="report-notes-section">
+            <label>Notes (optional):</label>
+            <textarea id="reportNotes" class="textarea-field" rows="2" placeholder="Additional details about the threat..."></textarea>
+          </div>
+
+          <!-- Vendor Grid -->
+          <div class="report-vendor-section">
+            <div class="report-vendor-header">
+              <label>Report to Vendors:</label>
+              <button id="reportToAllBtn" class="btn btn-danger btn-sm">Report to All</button>
+            </div>
+            <div id="reportVendorGrid" class="report-vendor-grid">
+              <!-- Vendor cards populated by JS -->
+            </div>
+          </div>
+
+          <!-- Report History -->
+          <div class="report-history-section">
+            <div class="report-history-header">
+              <label>Report History</label>
+              <button id="clearReportHistoryBtn" class="btn btn-sm" title="Clear report history">Clear</button>
+            </div>
+            <div id="reportHistoryList" class="report-history-list">
+              <p class="no-results">No reports submitted yet.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- AI Partner Chat Panel (outside .container to avoid fixed positioning issues) -->
+  <div id="aiPartnerPanel" class="ai-partner-panel">
+    <div class="ai-partner-header">
+      <div class="ai-partner-title">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+        AI Partner
+      </div>
+      <div class="ai-partner-header-actions">
+        <button id="aiPartnerNewBtn" class="btn btn-sm" title="New conversation">New</button>
+        <button id="aiPartnerMinimizeBtn" class="btn btn-sm" title="Minimize">&#8722;</button>
+        <button id="aiPartnerCloseBtn" class="btn btn-sm" title="Close">&times;</button>
+      </div>
+    </div>
+    <div id="aiPartnerStatus" class="ai-partner-status">
+      <span id="aiPartnerDomain">--</span>
+      <span id="aiPartnerFindingsCount">0 findings</span>
+      <span id="aiPartnerScore">Score: --</span>
+    </div>
+    <div id="aiPartnerMessages" class="ai-partner-messages">
+      <div class="chat-welcome">
+        <p><strong>Origami AI Partner</strong></p>
+        <p>Ask me about your scan findings, request PoC generation, or get remediation advice. I have full context of your current scan.</p>
+      </div>
+    </div>
+    <div class="ai-partner-quick-actions">
+      <button class="btn btn-sm chat-quick-btn" data-prompt="Give me a summary of all findings and their severity">Summarize</button>
+      <button class="btn btn-sm chat-quick-btn" data-prompt="What are the top 3 most exploitable findings and why?">Top Risks</button>
+      <button class="btn btn-sm chat-quick-btn" data-prompt="Generate a PoC for the most critical finding">PoC</button>
+      <button class="btn btn-sm chat-quick-btn" data-prompt="Provide a prioritized remediation plan for all findings">Remediation</button>
+      <button class="btn btn-sm chat-quick-btn" data-prompt="Identify potential attack chains across findings">Chains</button>
+    </div>
+    <div class="ai-partner-input-area">
+      <textarea id="aiPartnerInput" class="textarea-field" placeholder="Ask about your findings..." rows="2"></textarea>
+      <button id="aiPartnerSendBtn" class="btn btn-primary" title="Send message">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- AI Partner Minimized Indicator (outside .container) -->
+  <div id="aiPartnerMinimized" class="ai-partner-minimized" style="display: none;">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+  </div>
+
+  <script src="../lib/js-yaml.min.js"></script>
+  <script src="../plugins/plugin-validator.js"></script>
+  <script src="../icons/svg-icons.js"></script>
+  <script src="../google-api-validator.js"></script>
+  <script src="../llm/llm-manager.js"></script>
+  <script src="../llm/security-prompts.js"></script>
+  <script src="../export/report-generator.js"></script>
+  <script src="../analyzers/security-scorer.js"></script>
+  <script src="../validators/secret-validator.js"></script>
+  <script src="../llm/rule-generator.js"></script>
+  <script src="../llm/chain-predictor.js"></script>
+  <script src="../llm/poc-generator.js"></script>
+  <script src="../llm/crypto-analyzer.js"></script>
+  <script src="../llm/cloud-storage-analyzer.js"></script>
+  <script src="../llm/exfiltration-classifier.js"></script>
+  <script src="../llm/websocket-analyzer.js"></script>
+  <script src="../llm/intent-engine.js"></script>
+  <script src="../llm/context-builder.js"></script>
+  <script src="../llm/chat-tools.js"></script>
+  <script src="../llm/chat-manager.js"></script>
+  <script src="../analyzers/phishing-reporter.js"></script>
+  <script src="../constants.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
+

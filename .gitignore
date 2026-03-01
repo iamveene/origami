@@ -1,0 +1,111 @@
+# Build and package directories
+build/
+package/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor and tool settings
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+*~
+
+# Claude Code settings
+.claude/
+.mcp.json
+
+# Private and internal files
+.private/
+internal/
+
+# Tests (internal, not part of public repo)
+tests/
+
+# Temporary/WIP files
+tmp/
+
+# Node modules and package files
+node_modules/
+package.json
+package-lock.json
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Private keys
+*.pem
+*.key
+
+# Store assets (Chrome Web Store publishing materials)
+store/
+
+# CI/CD workflows (internal)
+.github/
+
+# Playwright MCP logs
+.playwright-mcp/
+
+# Playwright test artifacts and config
+playwright-report/
+test-results/
+playwright.config.*
+tsconfig.json
+
+# Development documentation (only README.md and PRIVACY_POLICY.md are public)
+ROADMAP.md
+CHANGELOG.md
+CLAUDE.md
+PLAN.md
+BUGFIXES-*.md
+*IMPLEMENTATION*.md
+*DEBUG*.md
+*FIX_*.md
+*TEST_*.md
+*CHECKLIST*.md
+QUICKSTART.md
+QUICK_START_GUIDE*.md
+QUICK_REFERENCE*.md
+TESTING_GUIDE.md
+TESTING_INSTRUCTIONS*.md
+TROUBLESHOOTING.md
+INSTALLATION_AND_FIRST_RUN.md
+FEATURES_OVERVIEW.md
+MISSING_FEATURES*.md
+CURRENT_STATUS.md
+ICON_GENERATION.md
+OLLAMA_SETUP_GUIDE.md
+API_VALIDATION_FEATURE.md
+*_SUMMARY*.md
+*_CHANGES.md
+*_UPDATE*.md
+NEW_FEATURES*.md
+ORIGAMI_V2_RELEASE_NOTES.md
+AUTO_SCAN*.md
+
+# Internal utilities
+fix-ollama-cors.sh
+
+# Test files
+test-*.html
+debug-*.html
+reset-patterns.html
+create-icons.html
+
+# Backup files
+*.backup*
+backups/
+
+# Reference files
+ref/
+
+# Generated reports
+reports/

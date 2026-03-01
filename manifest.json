@@ -1,0 +1,76 @@
+{
+  "manifest_version": 3,
+  "name": "Origami",
+  "version": "0.5.0",
+  "description": "Unfold. Detect. Secure. -- Offensive/defensive security toolkit for secrets, vulnerabilities, technologies, and more",
+  "permissions": [
+    "activeTab",
+    "cookies",
+    "storage",
+    "notifications",
+    "scripting",
+    "webNavigation",
+    "downloads",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "http://localhost:11434/*",
+    "http://127.0.0.1:11434/*",
+    "ws://127.0.0.1:9340/*",
+    "ws://localhost:9340/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "constants.js",
+        "scanner.js",
+        "analyzers/header-analyzer.js",
+        "analyzers/cookie-analyzer.js",
+        "analyzers/vuln-scanner.js",
+        "analyzers/tech-fingerprinter.js",
+        "analyzers/sensitive-file-scanner.js",
+        "analyzers/resource-collector.js",
+        "analyzers/session-analyzer.js",
+        "analyzers/oauth-interceptor.js",
+        "analyzers/saml-decoder.js",
+        "analyzers/graphql-mapper.js",
+        "analyzers/surface-tracker.js",
+        "analyzers/correlation-engine.js",
+        "lib/origami-utils.js",
+        "analyzers/crypto-auditor.js",
+        "analyzers/cloud-storage-mapper.js",
+        "analyzers/exfiltration-detector.js",
+        "analyzers/websocket-auditor.js",
+        "analyzers/js-obfuscation-detector.js",
+        "lib/js-yaml.min.js",
+        "templates/template-engine.js",
+        "workbench/chain-builder.js",
+        "plugins/plugin-validator.js",
+        "plugins/plugin-registry.js",
+        "plugins/plugin-loader.js",
+        "analyzers/analyzer-coordinator.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": []
+}
+
