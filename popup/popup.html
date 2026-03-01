@@ -616,6 +616,7 @@
           <button class="attack-lab-sub-tab-btn" data-attack-tab="poc">PoC Generator</button>
           <button class="attack-lab-sub-tab-btn" data-attack-tab="intent">Intent</button>
           <button class="attack-lab-sub-tab-btn" data-attack-tab="cookies">Cookies</button>
+          <button class="attack-lab-sub-tab-btn" data-attack-tab="sqli">SQLi</button>
         </nav>
         <div class="attack-lab-sub-tab-content">
           <!-- Chains Sub-Tab -->
@@ -811,6 +812,110 @@
               </div>
             </div>
           </div>
+
+          <!-- SQLi Attack Sub-Tab -->
+          <div id="attack-lab-sqli-tab" class="attack-lab-sub-tab-pane">
+
+            <!-- Target -->
+            <div class="sqli-target-section">
+              <div class="sqli-target-bar">
+                <select id="sqliMethod" class="select-field">
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                </select>
+                <input id="sqliUrl" class="input-field" placeholder="https://target.com/page.php?id=1" style="flex:1;">
+                <button id="sqliLoadBtn" class="btn btn-secondary btn-sm">Load</button>
+              </div>
+              <div class="sqli-import-bar">
+                <button id="sqliImportCurl" class="btn btn-secondary btn-sm">Import cURL</button>
+                <button id="sqliFromHistory" class="btn btn-secondary btn-sm">From Repeater History</button>
+              </div>
+              <div id="sqliCurlSection" style="display:none; margin-top:6px;">
+                <textarea id="sqliCurlInput" class="textarea-field" rows="3" placeholder="Paste curl command here..."></textarea>
+                <div style="display:flex; gap:6px; margin-top:4px;">
+                  <button id="sqliCurlConfirm" class="btn btn-primary btn-sm">Import</button>
+                  <button id="sqliCurlCancel" class="btn btn-secondary btn-sm">Cancel</button>
+                </div>
+              </div>
+              <div id="sqliBodySection" style="display:none; margin-top:6px;">
+                <textarea id="sqliBody" class="textarea-field" rows="3" placeholder="POST body (form-encoded: a=1&b=2  or JSON: {&quot;id&quot;:1})"></textarea>
+              </div>
+              <div id="sqliParamsContainer" class="sqli-params-container" style="margin-top:6px;"></div>
+            </div>
+
+            <!-- Options -->
+            <div class="sqli-options-section">
+              <div class="sqli-options-row">
+                <span style="font-size:12px; font-weight:600;">Techniques:</span>
+                <label class="sqli-tech-label"><input type="checkbox" class="sqli-tech" value="B" checked> Boolean</label>
+                <label class="sqli-tech-label"><input type="checkbox" class="sqli-tech" value="E" checked> Error</label>
+                <label class="sqli-tech-label"><input type="checkbox" class="sqli-tech" value="T" checked> Time</label>
+                <label class="sqli-tech-label"><input type="checkbox" class="sqli-tech" value="U" checked> UNION</label>
+                <label class="sqli-tech-label"><input type="checkbox" class="sqli-tech" value="S"> Stacked</label>
+              </div>
+              <div class="sqli-options-row" style="margin-top:6px;">
+                <label class="sqli-option-label">DBMS:
+                  <select id="sqliDbms" class="select-field select-field-sm">
+                    <option value="auto">Auto-Detect</option>
+                    <option value="mysql">MySQL</option>
+                    <option value="mssql">MSSQL</option>
+                    <option value="postgresql">PostgreSQL</option>
+                    <option value="oracle">Oracle</option>
+                    <option value="sqlite">SQLite</option>
+                  </select>
+                </label>
+                <label class="sqli-option-label">Delay (s):
+                  <input id="sqliDelay" type="number" class="input-field input-field-sm" value="5" min="1" max="30">
+                </label>
+                <label class="sqli-option-label">Risk:
+                  <select id="sqliRisk" class="select-field select-field-sm">
+                    <option value="1" selected>1 (Safe)</option>
+                    <option value="2">2 (Medium)</option>
+                    <option value="3">3 (Aggressive)</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <!-- AI-Assisted Attack -->
+            <div class="sqli-ai-section">
+              <div class="sqli-ai-header">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="sqliAiMode">
+                  <span>AI-Assisted Attack</span>
+                </label>
+                <span class="sqli-ai-hint">AI partner autonomously explores the vulnerability with your guidance</span>
+              </div>
+              <div id="sqliAiControls" style="display:none;">
+                <textarea id="sqliAiInstructions" class="textarea-field" rows="2"
+                  placeholder="Instructions for AI partner: e.g. focus on login form, try to extract user table, test WAF bypass..."></textarea>
+                <div id="sqliAiChat" class="sqli-ai-chat"></div>
+                <div class="sqli-ai-input-bar">
+                  <input id="sqliAiUserMessage" class="input-field" placeholder="Send guidance to AI partner...">
+                  <button id="sqliAiSendBtn" class="btn btn-secondary btn-sm">Send</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="sqli-actions">
+              <button id="sqliRunBtn" class="btn btn-primary">Run SQLi Test</button>
+              <button id="sqliStopBtn" class="btn btn-danger" style="display:none;">Stop</button>
+            </div>
+
+            <!-- Progress -->
+            <div id="sqliProgress" style="display:none; margin:8px 0;">
+              <div class="sqli-progress-bar"><div id="sqliProgressFill"></div></div>
+              <div id="sqliProgressLabel" class="sqli-progress-label">Initializing...</div>
+            </div>
+
+            <!-- Log + Results -->
+            <div id="sqliLog" class="sqli-log"></div>
+            <div id="sqliResults" class="sqli-results"></div>
+
+          </div>
+
         </div>
       </div>
 
@@ -1379,6 +1484,18 @@
             <div class="form-group" id="ollamaEndpointGroup" style="display: none;">
               <label>Ollama Endpoint:</label>
               <input type="text" id="ollamaEndpoint" class="input-field" value="http://127.0.0.1:11434" placeholder="http://127.0.0.1:11434">
+            </div>
+
+            <!-- Max AI Partner Iterations -->
+            <div class="form-group" style="margin-top: 12px;">
+              <label style="font-weight: 600; font-size: 12px;">
+                Max AI Partner Iterations: <span id="aiMaxIterationsValue">30</span>
+              </label>
+              <input type="range" id="aiMaxIterations" class="crawler-slider"
+                min="5" max="100" value="30" style="margin-top: 6px;">
+              <p class="info-text" style="font-size: 11px; margin-top: 4px; color: var(--text-secondary);">
+                Maximum tool calls the AI Partner can make per turn. Higher values allow deeper autonomous exploitation chains but consume more API tokens.
+              </p>
             </div>
 
             <!-- Test Connection -->
@@ -2105,19 +2222,152 @@
 
       <!-- History Tab -->
       <div id="history-tab" class="tab-pane">
-        <div class="actions-bar">
-          <input type="text" id="historySearchInput" class="search-input" placeholder="Search history...">
-          <select id="historyRiskFilter" class="select-field">
-            <option value="all">All Risks</option>
-            <option value="CRITICAL">Critical</option>
-            <option value="HIGH">High</option>
-            <option value="MEDIUM">Medium</option>
-          </select>
+        <!-- History Sub-Tabs -->
+        <nav class="history-sub-tabs">
+          <button class="history-sub-tab-btn active" data-history-tab="http-traffic">HTTP Traffic</button>
+          <button class="history-sub-tab-btn" data-history-tab="scan-history">Scan History</button>
+        </nav>
+
+        <!-- HTTP Traffic Sub-Tab -->
+        <div id="http-traffic-subtab" class="history-subtab-pane active">
+          <!-- Control Bar -->
+          <div class="http-hist-control-bar">
+            <div class="http-hist-controls-left">
+              <label class="http-hist-toggle-label" title="Start/stop HTTP traffic capture (Tier 1: fetch/XHR monkey-patch)">
+                <input type="checkbox" id="httpCaptureToggle">
+                <span class="http-hist-toggle-dot" id="httpCaptureDot"></span>
+                <span>Record</span>
+              </label>
+              <label class="http-hist-toggle-label" title="Full Capture mode uses chrome.debugger for complete traffic visibility (shows yellow debug bar)">
+                <input type="checkbox" id="httpFullCaptureToggle" disabled>
+                <span>Full Capture</span>
+              </label>
+            </div>
+            <div class="http-hist-controls-right">
+              <select id="httpCaptureScope" class="select-field select-sm">
+                <option value="same-origin">Same-origin</option>
+                <option value="domain-subdomains">Domain + subdomains</option>
+                <option value="all">All origins</option>
+              </select>
+              <button id="httpHistClearBtn" class="btn btn-danger btn-sm">Clear</button>
+              <button id="httpHistExportBtn" class="btn btn-secondary btn-sm">Export</button>
+            </div>
+          </div>
+
+          <!-- Filter Bar -->
+          <div class="http-hist-filter-bar">
+            <input type="text" id="httpHistSearch" class="search-input" placeholder="Search URL/host...">
+            <select id="httpHistMethodFilter" class="select-field select-sm">
+              <option value="ALL">Method</option>
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+              <option value="OPTIONS">OPTIONS</option>
+              <option value="HEAD">HEAD</option>
+              <option value="WS">WS</option>
+            </select>
+            <select id="httpHistStatusFilter" class="select-field select-sm">
+              <option value="">Status</option>
+              <option value="2xx">2xx</option>
+              <option value="3xx">3xx</option>
+              <option value="4xx">4xx</option>
+              <option value="5xx">5xx</option>
+              <option value="0">Error</option>
+            </select>
+            <select id="httpHistTypeFilter" class="select-field select-sm">
+              <option value="">Type</option>
+              <option value="json">JSON</option>
+              <option value="html">HTML</option>
+              <option value="xml">XML</option>
+              <option value="form">Form</option>
+              <option value="text">Text</option>
+            </select>
+          </div>
+
+          <!-- Table -->
+          <div class="http-hist-table-wrap">
+            <table class="http-hist-table">
+              <thead>
+                <tr>
+                  <th class="http-hist-col-id">#</th>
+                  <th class="http-hist-col-method">Method</th>
+                  <th class="http-hist-col-host">Host</th>
+                  <th class="http-hist-col-path">Path</th>
+                  <th class="http-hist-col-status">Status</th>
+                  <th class="http-hist-col-type">Type</th>
+                  <th class="http-hist-col-size">Size</th>
+                  <th class="http-hist-col-time">Time</th>
+                  <th class="http-hist-col-actions"></th>
+                </tr>
+              </thead>
+              <tbody id="httpHistTableBody">
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Empty state -->
+          <div id="httpHistEmpty" class="empty-state">
+            <p>No HTTP traffic captured yet.</p>
+            <p class="empty-hint">Enable the Record toggle above and interact with a page to capture fetch/XHR requests.</p>
+          </div>
+
+          <!-- Pagination -->
+          <div id="httpHistPagination" class="http-hist-pagination" style="display: none;">
+            <span id="httpHistCount" class="http-hist-count"></span>
+            <button id="httpHistLoadMore" class="btn btn-secondary btn-sm">Load More</button>
+          </div>
+
+          <!-- Detail Panel (injected dynamically below the clicked row) -->
+          <div id="httpHistDetail" class="http-hist-detail" style="display: none;">
+            <div class="http-hist-detail-header">
+              <nav class="http-hist-detail-tabs">
+                <button class="http-hist-detail-tab-btn active" data-detail-tab="request">Request</button>
+                <button class="http-hist-detail-tab-btn" data-detail-tab="response">Response</button>
+              </nav>
+              <div class="http-hist-detail-actions">
+                <button id="httpHistSendRepeater" class="btn btn-primary btn-sm">Send to Repeater</button>
+                <button id="httpHistCopyCurl" class="btn btn-secondary btn-sm">Copy cURL</button>
+                <button id="httpHistPinBtn" class="btn btn-secondary btn-sm">Pin</button>
+                <button id="httpHistCloseDetail" class="btn btn-secondary btn-sm">Close</button>
+              </div>
+            </div>
+            <div id="httpHistDetailRequest" class="http-hist-detail-pane active">
+              <div id="httpHistDetailReqSummary" class="http-hist-detail-summary"></div>
+              <div id="httpHistDetailReqCredWarning" class="http-hist-cred-warning" style="display: none;"></div>
+              <h4>Headers</h4>
+              <table id="httpHistDetailReqHeaders" class="http-hist-headers-table"></table>
+              <h4>Body</h4>
+              <pre id="httpHistDetailReqBody" class="http-hist-body-pre"></pre>
+            </div>
+            <div id="httpHistDetailResponse" class="http-hist-detail-pane" style="display: none;">
+              <div id="httpHistDetailRespSummary" class="http-hist-detail-summary"></div>
+              <h4>Headers</h4>
+              <table id="httpHistDetailRespHeaders" class="http-hist-headers-table"></table>
+              <h4>Body</h4>
+              <pre id="httpHistDetailRespBody" class="http-hist-body-pre"></pre>
+            </div>
+          </div>
         </div>
-        <div id="historyContainer" class="history-container">
-          <div class="empty-state">
-            <p>No history yet.</p>
-            <p class="empty-hint">Scan results will appear here when history is enabled.</p>
+
+        <!-- Scan History Sub-Tab (preserves existing functionality) -->
+        <div id="scan-history-subtab" class="history-subtab-pane" style="display: none;">
+          <div class="actions-bar">
+            <input type="text" id="historySearchInput" class="search-input" placeholder="Search scan history...">
+            <select id="historyRiskFilter" class="select-field">
+              <option value="all">All Risks</option>
+              <option value="CRITICAL">Critical</option>
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+            </select>
+            <button id="clearScanHistoryBtn" class="btn btn-danger btn-sm">Clear</button>
+          </div>
+          <div id="historyContainer" class="history-container">
+            <div class="empty-state">
+              <p>No scan history yet.</p>
+              <p class="empty-hint">Scan results will appear here when history is enabled.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -2529,6 +2779,11 @@ matchers:
         AI Partner
       </div>
       <div class="ai-partner-header-actions">
+        <div class="ai-mode-toggle" id="aiModeToggle" title="Switch between Advisor and Exploiter mode">
+          <button class="ai-mode-btn active" data-mode="advisor">Advisor</button>
+          <button class="ai-mode-btn" data-mode="exploiter">Exploiter</button>
+        </div>
+        <button id="aiPartnerDownloadBtn" class="btn btn-sm" title="Download conversation transcript">&#8595;</button>
         <button id="aiPartnerNewBtn" class="btn btn-sm" title="New conversation">New</button>
         <button id="aiPartnerMinimizeBtn" class="btn btn-sm" title="Minimize">&#8722;</button>
         <button id="aiPartnerCloseBtn" class="btn btn-sm" title="Close">&times;</button>
@@ -2557,6 +2812,7 @@ matchers:
       <button id="aiPartnerSendBtn" class="btn btn-primary" title="Send message">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
       </button>
+      <button id="aiPartnerStopBtn" class="btn btn-stop" title="Stop generation" style="display:none;">&#9632; Stop</button>
     </div>
   </div>
 
@@ -2587,6 +2843,7 @@ matchers:
   <script src="../llm/chat-manager.js"></script>
   <script src="../analyzers/phishing-reporter.js"></script>
   <script src="../constants.js"></script>
+  <script src="../analyzers/sqli-tester.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

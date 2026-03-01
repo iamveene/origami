@@ -25,11 +25,18 @@ class ChatManager {
       maxTotal: 16000
     };
 
-    this.MAX_TOOL_ITERATIONS = 5;
+    this.MAX_TOOL_ITERATIONS = 30;
 
     // Optional cached context passed from popup.js
     this._securityResults = null;
     this._currentFindings = null;
+
+    // Mode: 'advisor' (default) or 'exploiter'
+    this._mode = 'advisor';
+  }
+
+  setMode(mode) {
+    this._mode = (mode === 'exploiter') ? 'exploiter' : 'advisor';
   }
 
   // Set context data from popup.js globals (avoids redundant storage reads)
@@ -45,9 +52,22 @@ class ChatManager {
     }
   }
 
+  // Sanitize a tool result string, preserving the [TOOL_RESULT] structural markers
+  // (which are trusted, added by executeTool()) while sanitizing the inner content
+  // (which may contain attacker-controlled HTTP response data).
+  _sanitizeToolResult(toolResultText) {
+    return toolResultText.replace(
+      /^\[TOOL_RESULT\]\n([\s\S]*)\n\[\/TOOL_RESULT\]$/,
+      (match, inner) => '[TOOL_RESULT]\n' + this.contextBuilder.sanitizeForPrompt(inner) + '\n[/TOOL_RESULT]'
+    );
+  }
+
   // Main entry point: send a user message and get a response
-  // onChunk: optional callback for future streaming support
-  async sendMessage(userMessage, onChunk) {
+  // options.onToolCall(toolName, resultText): called live after each tool execution
+  // options.signal: AbortSignal to stop the loop mid-flight
+  async sendMessage(userMessage, options) {
+    const onToolCall = options && options.onToolCall ? options.onToolCall : null;
+    const signal = options && options.signal ? options.signal : null;
     if (!userMessage || typeof userMessage !== 'string') {
       return { response: 'Please enter a message.', toolsUsed: [] };
     }
@@ -70,8 +90,10 @@ class ChatManager {
     });
 
     const toolsUsed = [];
+    const toolDetails = [];
     let iterations = 0;
     let finalResponse = '';
+    let correctionApplied = false;
 
     try {
       // Fetch fresh context data
@@ -80,18 +102,28 @@ class ChatManager {
       const secrets = allFindings?.secrets || [];
       const scanSummary = this.contextBuilder.buildScanSummary(securityResults, secrets);
 
+      // Read configurable max iterations from settings
+      const storedSettings = await new Promise(resolve => chrome.storage.sync.get(['settings'], resolve));
+      const maxIter = storedSettings.settings?.llm?.maxToolIterations ?? this.MAX_TOOL_ITERATIONS;
+
       // Build system prompt
       const systemPrompt = this.contextBuilder.buildSystemPrompt(
         this.domain,
         securityResults?.timestamp || new Date().toISOString(),
-        scanSummary
+        scanSummary,
+        this._mode
       );
 
       // Tool call loop
       let currentResponse = '';
       let toolMessages = [];
 
-      while (iterations < this.MAX_TOOL_ITERATIONS) {
+      while (iterations < maxIter) {
+        if (signal && signal.aborted) {
+          finalResponse = currentResponse || 'Stopped.';
+          break;
+        }
+
         iterations++;
 
         // Build message array
@@ -120,6 +152,19 @@ class ChatManager {
         const toolCalls = this.chatTools.parseToolCalls(currentResponse);
 
         if (toolCalls.length === 0) {
+          // On the first iteration of an exploitation context, force one correction turn
+          const isExploitContext = iterations === 1 && !correctionApplied &&
+            (truncatedMessage.includes('Authorization scope') || truncatedMessage.includes('Attack Lab'));
+          if (isExploitContext) {
+            correctionApplied = true;
+            toolMessages.push({ role: 'assistant', content: currentResponse.trim() });
+            toolMessages.push({ role: 'user', content:
+              '[SYSTEM] You did not call any tools. Before reporting any data or analysis, ' +
+              'you MUST call send_http_request to establish a real baseline response. ' +
+              'Do not write findings or extracted values. Emit a [TOOL_CALL] block now.'
+            });
+            continue;
+          }
           // No more tool calls -- we have our final response
           finalResponse = currentResponse;
           break;
@@ -130,11 +175,15 @@ class ChatManager {
         let toolResultsText = '';
 
         for (const tc of toolCalls) {
+          if (signal && signal.aborted) break;
           toolsUsed.push(tc.tool);
           const result = await this.chatTools.executeTool(tc.tool, tc.params);
-          // Sanitize tool results to prevent prompt injection from attacker-controlled scan data
-          const sanitized = this.contextBuilder.sanitizeForPrompt(result);
+          // Sanitize only the inner content of tool results (attacker-controlled data)
+          // while preserving the [TOOL_RESULT] structural markers added by executeTool()
+          const sanitized = this._sanitizeToolResult(result);
           toolResultsText += sanitized + '\n';
+          toolDetails.push({ tool: tc.tool, params: tc.params, result: result, timestamp: new Date().toISOString() });
+          if (onToolCall) onToolCall(tc.tool, tc.params, result);
         }
 
         // Append assistant partial response and tool results for next iteration
@@ -145,10 +194,10 @@ class ChatManager {
         } else {
           toolMessages.push({ role: 'assistant', content: currentResponse.trim() });
         }
-        toolMessages.push({ role: 'user', content: '[Tool Results]\n' + toolResultsText.trim() });
+        toolMessages.push({ role: 'user', content: toolResultsText.trim() });
       }
 
-      if (iterations >= this.MAX_TOOL_ITERATIONS && !finalResponse) {
+      if (iterations >= maxIter && !finalResponse) {
         finalResponse = currentResponse || 'Maximum tool call iterations reached.';
       }
     } catch (e) {
@@ -161,6 +210,7 @@ class ChatManager {
       role: 'assistant',
       content: finalResponse,
       toolsUsed: toolsUsed,
+      toolDetails: toolDetails.length > 0 ? toolDetails : undefined,
       timestamp: new Date().toISOString()
     });
 
@@ -169,7 +219,7 @@ class ChatManager {
     // Save history asynchronously
     this.saveHistory().catch(e => console.error('Origami: Failed to save chat history:', e));
 
-    return { response: finalResponse, toolsUsed: toolsUsed };
+    return { response: finalResponse, toolsUsed: toolsUsed, toolDetails: toolDetails };
   }
 
   // Build the full message array for the LLM

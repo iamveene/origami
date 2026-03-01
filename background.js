@@ -237,6 +237,16 @@ const DEFAULT_SETTINGS = {
     correlationEngine: true,
     surfaceTracker: true,
     jsObfuscation: true
+  },
+  httpHistory: {
+    enabled: false,
+    fullCapture: false,
+    captureScope: 'same-origin',
+    captureBodies: true,
+    maxBodySize: 512 * 1024,
+    retentionDays: 7,
+    maxTotalSizeMB: 200,
+    excludeMimeTypes: ['image/', 'font/', 'video/', 'audio/']
   }
 };
 
@@ -264,6 +274,509 @@ importScripts('analyzers/brute-force-scanner.js');
 // Web Crawler
 // ============================================================================
 importScripts('analyzers/crawler.js');
+// ============================================================================
+
+// ============================================================================
+// HTTP History -- IndexedDB helpers
+// ============================================================================
+
+var _httpHistoryDb = null;
+
+// HTTP History capture state (in-memory, broadcast to content scripts)
+// Use var so these are on globalThis (accessible from Playwright service worker evaluate)
+var httpCaptureEnabled = false;
+var httpCaptureScope = 'same-origin';
+var httpFullCaptureTabId = null; // Tier 2: tab currently being debugged
+
+function openHttpHistoryDb() {
+  if (_httpHistoryDb) return Promise.resolve(_httpHistoryDb);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(ORIGAMI_HTTP_HISTORY_DB_NAME, ORIGAMI_HTTP_HISTORY_DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(ORIGAMI_HTTP_HISTORY_STORE)) {
+        const store = db.createObjectStore(ORIGAMI_HTTP_HISTORY_STORE, { keyPath: 'id', autoIncrement: true });
+        store.createIndex('timestamp', 'timestamp', { unique: false });
+        store.createIndex('domain', 'domain', { unique: false });
+        store.createIndex('method', 'method', { unique: false });
+        store.createIndex('status', 'status', { unique: false });
+        store.createIndex('contentType', 'contentType', { unique: false });
+        store.createIndex('tabId', 'tabId', { unique: false });
+      }
+    };
+    req.onsuccess = (e) => {
+      _httpHistoryDb = e.target.result;
+      _httpHistoryDb.onclose = () => { _httpHistoryDb = null; };
+      resolve(_httpHistoryDb);
+    };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function addHttpHistoryEntry(entry) {
+  const db = await openHttpHistoryDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readwrite');
+    const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+    // Ensure required fields
+    const record = {
+      timestamp: entry.timestamp || Date.now(),
+      method: entry.method || 'GET',
+      url: entry.url || '',
+      domain: entry.domain || '',
+      path: entry.path || '',
+      requestHeaders: entry.requestHeaders || {},
+      requestBody: entry.requestBody || '',
+      requestBodySize: entry.requestBodySize || 0,
+      status: entry.status || 0,
+      statusText: entry.statusText || '',
+      contentType: entry.contentType || '',
+      responseHeaders: entry.responseHeaders || {},
+      responseBody: entry.responseBody || '',
+      responseBodySize: entry.responseBodySize || 0,
+      truncated: entry.truncated || false,
+      timing: entry.timing || 0,
+      tabId: entry.tabId || 0,
+      tabUrl: entry.tabUrl || '',
+      source: entry.source || 'unknown',
+      tier: entry.tier || 1,
+      redirectChain: entry.redirectChain || [],
+      wsFrames: entry.wsFrames || [],
+      pinned: false,
+      hasCredentials: entry.hasCredentials || false
+    };
+    const req = store.add(record);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getHttpHistory(filters) {
+  const db = await openHttpHistoryDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readonly');
+    const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+    const index = store.index('timestamp');
+    const results = [];
+    const offset = filters.offset || 0;
+    const limit = filters.limit || ORIGAMI_HTTP_HISTORY_PAGE_SIZE;
+    let skipped = 0;
+
+    // Walk backwards (newest first)
+    const cursorReq = index.openCursor(null, 'prev');
+    cursorReq.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor || results.length >= limit) {
+        resolve(results);
+        return;
+      }
+      const entry = cursor.value;
+
+      // Apply filters
+      if (filters.method && filters.method !== 'ALL' && entry.method !== filters.method) {
+        cursor.continue();
+        return;
+      }
+      if (filters.statusGroup) {
+        const s = entry.status;
+        if (filters.statusGroup === '2xx' && (s < 200 || s >= 300)) { cursor.continue(); return; }
+        if (filters.statusGroup === '3xx' && (s < 300 || s >= 400)) { cursor.continue(); return; }
+        if (filters.statusGroup === '4xx' && (s < 400 || s >= 500)) { cursor.continue(); return; }
+        if (filters.statusGroup === '5xx' && (s < 500 || s >= 600)) { cursor.continue(); return; }
+        if (filters.statusGroup === '0' && s !== 0) { cursor.continue(); return; }
+      }
+      if (filters.domain && !entry.domain.includes(filters.domain)) {
+        cursor.continue();
+        return;
+      }
+      if (filters.search) {
+        const term = filters.search.toLowerCase();
+        if (!entry.url.toLowerCase().includes(term) &&
+            !entry.domain.toLowerCase().includes(term) &&
+            !entry.path.toLowerCase().includes(term)) {
+          cursor.continue();
+          return;
+        }
+      }
+      if (filters.source && entry.source !== filters.source) {
+        cursor.continue();
+        return;
+      }
+      if (filters.hasCredentials && !entry.hasCredentials) {
+        cursor.continue();
+        return;
+      }
+      if (filters.contentTypeFilter) {
+        const ct = (entry.contentType || '').toLowerCase();
+        if (filters.contentTypeFilter === 'json' && !ct.includes('json')) { cursor.continue(); return; }
+        if (filters.contentTypeFilter === 'html' && !ct.includes('html')) { cursor.continue(); return; }
+        if (filters.contentTypeFilter === 'xml' && !ct.includes('xml')) { cursor.continue(); return; }
+        if (filters.contentTypeFilter === 'form' && !ct.includes('form')) { cursor.continue(); return; }
+        if (filters.contentTypeFilter === 'text' && !ct.includes('text')) { cursor.continue(); return; }
+      }
+
+      // Pagination offset
+      if (skipped < offset) {
+        skipped++;
+        cursor.continue();
+        return;
+      }
+
+      // Strip response body for list view (too large for IPC)
+      const slim = { ...entry };
+      delete slim.responseBody;
+      delete slim.requestBody;
+      results.push(slim);
+      cursor.continue();
+    };
+    cursorReq.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getHttpHistoryEntry(id) {
+  const db = await openHttpHistoryDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readonly');
+    const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+    const req = store.get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function clearHttpHistory() {
+  const db = await openHttpHistoryDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readwrite');
+    const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+    const req = store.clear();
+    req.onsuccess = () => resolve();
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getHttpHistoryCount() {
+  const db = await openHttpHistoryDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readonly');
+    const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+    const req = store.count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function toggleHttpHistoryPin(id, pinned) {
+  const db = await openHttpHistoryDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readwrite');
+    const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const record = getReq.result;
+      if (!record) { resolve(false); return; }
+      record.pinned = pinned;
+      const putReq = store.put(record);
+      putReq.onsuccess = () => resolve(true);
+      putReq.onerror = (e) => reject(e.target.error);
+    };
+    getReq.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function evictHttpHistory() {
+  try {
+    const db = await openHttpHistoryDb();
+
+    // 1. Prune response bodies older than 24 hours
+    const bodyThreshold = Date.now() - (ORIGAMI_HTTP_HISTORY_BODY_RETENTION_HOURS * 60 * 60 * 1000);
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readwrite');
+      const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+      const index = store.index('timestamp');
+      const range = IDBKeyRange.upperBound(bodyThreshold);
+      const cursorReq = index.openCursor(range);
+      cursorReq.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) { resolve(); return; }
+        const record = cursor.value;
+        if (!record.pinned && (record.responseBody || record.requestBody)) {
+          record.responseBody = '';
+          record.requestBody = '';
+          record.bodiesPruned = true;
+          cursor.update(record);
+        }
+        cursor.continue();
+      };
+      cursorReq.onerror = (e) => reject(e.target.error);
+    });
+
+    // 2. Delete metadata older than retention period
+    const metadataThreshold = Date.now() - (ORIGAMI_HTTP_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(ORIGAMI_HTTP_HISTORY_STORE, 'readwrite');
+      const store = tx.objectStore(ORIGAMI_HTTP_HISTORY_STORE);
+      const index = store.index('timestamp');
+      const range = IDBKeyRange.upperBound(metadataThreshold);
+      const cursorReq = index.openCursor(range);
+      cursorReq.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) { resolve(); return; }
+        if (!cursor.value.pinned) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+      cursorReq.onerror = (e) => reject(e.target.error);
+    });
+
+    console.log('Origami: HTTP History eviction complete');
+  } catch (e) {
+    console.error('Origami: HTTP History eviction error:', e);
+  }
+}
+
+// Broadcast capture state to all tabs
+function broadcastHttpCaptureState() {
+  chrome.tabs.query({}, (tabs) => {
+    for (const tab of tabs) {
+      chrome.tabs.sendMessage(tab.id, {
+        action: 'httpCaptureControl',
+        enabled: httpCaptureEnabled,
+        scope: httpCaptureScope
+      }).catch(() => {});
+    }
+  });
+}
+
+// ============================================================================
+// HTTP History -- Tier 2 (chrome.debugger) Full Capture
+// ============================================================================
+
+// CDP state per debuggee
+const cdpPendingRequests = new Map(); // requestId -> { method, url, headers, body, startTime, ... }
+
+function enableFullCapture(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.attach({ tabId }, '1.3', () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      httpFullCaptureTabId = tabId;
+      // Enable Network domain
+      chrome.debugger.sendCommand({ tabId }, 'Network.enable', {
+        maxPostDataSize: 512 * 1024
+      }, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve();
+      });
+    });
+  });
+}
+
+function disableFullCapture(tabId) {
+  return new Promise((resolve) => {
+    if (!tabId) { resolve(); return; }
+    cdpPendingRequests.clear();
+    chrome.debugger.detach({ tabId }, () => {
+      if (tabId === httpFullCaptureTabId) httpFullCaptureTabId = null;
+      resolve();
+    });
+  });
+}
+
+// CDP event handler
+chrome.debugger.onEvent.addListener(async (source, method, params) => {
+  if (source.tabId !== httpFullCaptureTabId) return;
+  if (!httpCaptureEnabled) return;
+
+  const tabId = source.tabId;
+
+  if (method === 'Network.requestWillBeSent') {
+    const req = params.request || {};
+    const type = params.type || 'Other';
+    cdpPendingRequests.set(params.requestId, {
+      method: req.method || 'GET',
+      url: req.url || '',
+      headers: req.headers || {},
+      postData: req.postData || '',
+      startTime: Date.now(),
+      type: type,
+      redirectChain: params.redirectResponse ? [{
+        url: params.redirectResponse.url,
+        status: params.redirectResponse.status
+      }] : []
+    });
+  }
+
+  if (method === 'Network.responseReceived') {
+    const pending = cdpPendingRequests.get(params.requestId);
+    if (!pending) return;
+    const resp = params.response || {};
+    pending.status = resp.status || 0;
+    pending.statusText = resp.statusText || '';
+    pending.responseHeaders = resp.headers || {};
+    pending.contentType = resp.mimeType || '';
+    pending.timing = Math.round(Date.now() - pending.startTime);
+  }
+
+  if (method === 'Network.loadingFinished') {
+    const pending = cdpPendingRequests.get(params.requestId);
+    if (!pending) return;
+    cdpPendingRequests.delete(params.requestId);
+
+    let responseBody = '';
+    let responseBodySize = 0;
+    let truncated = false;
+    const contentType = pending.contentType || '';
+
+    // Skip binary MIME types for body retrieval
+    const excludeMime = ORIGAMI_HTTP_HISTORY_EXCLUDE_MIME;
+    const shouldSkipBody = excludeMime.some(prefix => contentType.toLowerCase().includes(prefix));
+
+    if (!shouldSkipBody) {
+      try {
+        const bodyResult = await new Promise((resolve, reject) => {
+          chrome.debugger.sendCommand({ tabId }, 'Network.getResponseBody', {
+            requestId: params.requestId
+          }, (result) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else {
+              resolve(result);
+            }
+          });
+        });
+        const bodyText = bodyResult.body || '';
+        responseBodySize = bodyText.length;
+        if (bodyText.length > ORIGAMI_HTTP_HISTORY_MAX_BODY_SIZE) {
+          responseBody = bodyText.substring(0, ORIGAMI_HTTP_HISTORY_MAX_BODY_SIZE);
+          truncated = true;
+        } else {
+          responseBody = bodyText;
+        }
+      } catch (e) {
+        responseBody = '[body unavailable]';
+      }
+    } else {
+      responseBody = '[excluded: ' + contentType + ']';
+    }
+
+    // Map CDP resource type to source label
+    const typeMap = {
+      'Document': 'cdp-document', 'XHR': 'cdp-xhr', 'Fetch': 'cdp-xhr',
+      'Script': 'cdp-script', 'Stylesheet': 'cdp-stylesheet',
+      'Image': 'cdp-image', 'Font': 'cdp-font', 'WebSocket': 'cdp-websocket',
+      'Other': 'cdp-other', 'Media': 'cdp-other', 'Manifest': 'cdp-other',
+      'Ping': 'cdp-other', 'Preflight': 'cdp-other'
+    };
+
+    const domain = (() => { try { return new URL(pending.url).hostname; } catch (e) { return ''; } })();
+    const path = (() => { try { return new URL(pending.url).pathname; } catch (e) { return ''; } })();
+
+    // Scope check
+    let shouldStore = true;
+    if (httpCaptureScope === 'same-origin') {
+      // For CDP we check against the tab URL's origin
+      try {
+        const tabInfo = await chrome.tabs.get(tabId);
+        const tabOrigin = new URL(tabInfo.url).origin;
+        const reqOrigin = new URL(pending.url).origin;
+        if (tabOrigin !== reqOrigin) shouldStore = false;
+      } catch (e) { /* store it */ }
+    }
+
+    if (!shouldStore) return;
+
+    const credFields = ORIGAMI_HTTP_HISTORY_CREDENTIAL_FIELDS;
+    const hasCredentials = credFields.some(f => (pending.postData || '').toLowerCase().includes(f));
+
+    try {
+      await addHttpHistoryEntry({
+        timestamp: Date.now(),
+        method: pending.method,
+        url: pending.url,
+        domain: domain,
+        path: path,
+        requestHeaders: pending.headers,
+        requestBody: pending.postData,
+        requestBodySize: (pending.postData || '').length,
+        status: pending.status || 0,
+        statusText: pending.statusText || '',
+        contentType: contentType,
+        responseHeaders: pending.responseHeaders || {},
+        responseBody: responseBody,
+        responseBodySize: responseBodySize,
+        truncated: truncated,
+        timing: pending.timing || Math.round(Date.now() - pending.startTime),
+        tabId: tabId,
+        tabUrl: pending.url,
+        source: typeMap[pending.type] || 'cdp-other',
+        tier: 2,
+        redirectChain: pending.redirectChain || [],
+        wsFrames: [],
+        hasCredentials: hasCredentials
+      });
+    } catch (e) {
+      console.error('Origami: Failed to store CDP entry:', e);
+    }
+  }
+
+  // WebSocket frames (Tier 2 bonus)
+  if (method === 'Network.webSocketFrameSent' || method === 'Network.webSocketFrameReceived') {
+    const direction = method.includes('Sent') ? 'sent' : 'received';
+    const payload = params.response?.payloadData || '';
+    // Store as a standalone entry
+    try {
+      const domain = (() => { try { return new URL(params.url || '').hostname; } catch (e) { return ''; } })();
+      await addHttpHistoryEntry({
+        timestamp: Date.now(),
+        method: 'WS',
+        url: params.url || 'ws://unknown',
+        domain: domain,
+        path: '',
+        requestHeaders: {},
+        requestBody: direction === 'sent' ? payload : '',
+        requestBodySize: direction === 'sent' ? payload.length : 0,
+        status: 0,
+        statusText: 'WebSocket ' + direction,
+        contentType: 'websocket',
+        responseHeaders: {},
+        responseBody: direction === 'received' ? payload : '',
+        responseBodySize: direction === 'received' ? payload.length : 0,
+        truncated: false,
+        timing: 0,
+        tabId: tabId,
+        tabUrl: '',
+        source: 'cdp-websocket',
+        tier: 2,
+        redirectChain: [],
+        wsFrames: [{ direction, data: payload, timestamp: Date.now() }],
+        hasCredentials: false
+      });
+    } catch (e) { /* ignore WS store errors */ }
+  }
+});
+
+// Clean up debugger on tab close
+chrome.debugger.onDetach.addListener((source, reason) => {
+  if (source.tabId === httpFullCaptureTabId) {
+    httpFullCaptureTabId = null;
+    cdpPendingRequests.clear();
+  }
+});
+
+// Restore capture state from settings on startup
+chrome.storage.sync.get(['settings'], (data) => {
+  const settings = data.settings || DEFAULT_SETTINGS;
+  httpCaptureEnabled = !!(settings.httpHistory && settings.httpHistory.enabled);
+  httpCaptureScope = (settings.httpHistory && settings.httpHistory.captureScope) || 'same-origin';
+});
+
 // ============================================================================
 
 // Initialize storage on install
@@ -2288,6 +2801,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const cleanHeaders = { ...(headers || {}) };
         delete cleanHeaders['Origin'];
         delete cleanHeaders['Referer'];
+        delete cleanHeaders['User-Agent']; // forbidden fetch header — browser sets this automatically
 
         const fetchOptions = {
           method: method || 'GET',
@@ -2332,6 +2846,208 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         try {
           sendResponse({
             error: error.name === 'AbortError' ? 'Request timed out (30s)' : error.message,
+            status: 0,
+          });
+        } catch (e) {
+          // Popup may have closed — ignore
+        }
+      } finally {
+        clearTimeout(timeout);
+      }
+    })();
+
+    return true; // Keep channel open for async response
+
+  // ========================================================================
+  // HTTP History message handlers
+  // ========================================================================
+  } else if (request.action === 'httpHistoryEntry') {
+    if (!httpCaptureEnabled) return;
+    const entry = request.entry;
+    if (!entry || !entry.url) return;
+    entry.tabId = sender.tab?.id || 0;
+    entry.tier = 1;
+    addHttpHistoryEntry(entry).catch(e => {
+      console.error('Origami: Failed to store HTTP history entry:', e);
+    });
+    return; // No response needed (fire-and-forget from content script)
+
+  } else if (request.action === 'getHttpHistoryState') {
+    sendResponse({ enabled: httpCaptureEnabled, scope: httpCaptureScope });
+    return;
+
+  } else if (request.action === 'getHttpHistory') {
+    (async () => {
+      try {
+        const entries = await getHttpHistory(request.filters || {});
+        const total = await getHttpHistoryCount();
+        sendResponse({ entries, total });
+      } catch (e) {
+        sendResponse({ entries: [], total: 0, error: e.message });
+      }
+    })();
+    return true;
+
+  } else if (request.action === 'getHttpHistoryEntry') {
+    (async () => {
+      try {
+        const entry = await getHttpHistoryEntry(request.id);
+        sendResponse({ entry });
+      } catch (e) {
+        sendResponse({ entry: null, error: e.message });
+      }
+    })();
+    return true;
+
+  } else if (request.action === 'clearHttpHistory') {
+    (async () => {
+      try {
+        await clearHttpHistory();
+        sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+
+  } else if (request.action === 'toggleHttpCapture') {
+    httpCaptureEnabled = !!request.enabled;
+    if (request.scope) httpCaptureScope = request.scope;
+
+    // Persist to settings
+    chrome.storage.sync.get(['settings'], (data) => {
+      const settings = data.settings || DEFAULT_SETTINGS;
+      if (!settings.httpHistory) settings.httpHistory = {};
+      settings.httpHistory.enabled = httpCaptureEnabled;
+      settings.httpHistory.captureScope = httpCaptureScope;
+      chrome.storage.sync.set({ settings });
+    });
+
+    broadcastHttpCaptureState();
+    sendResponse({ enabled: httpCaptureEnabled, scope: httpCaptureScope });
+    return;
+
+  } else if (request.action === 'enableFullCapture') {
+    (async () => {
+      try {
+        const tabId = request.tabId;
+        if (!tabId) { sendResponse({ success: false, error: 'No tabId' }); return; }
+        await enableFullCapture(tabId);
+        sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+
+  } else if (request.action === 'disableFullCapture') {
+    (async () => {
+      try {
+        await disableFullCapture(request.tabId || httpFullCaptureTabId);
+        sendResponse({ success: true });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+
+  } else if (request.action === 'toggleHttpHistoryPin') {
+    (async () => {
+      try {
+        const result = await toggleHttpHistoryPin(request.id, request.pinned);
+        sendResponse({ success: result });
+      } catch (e) {
+        sendResponse({ success: false, error: e.message });
+      }
+    })();
+    return true;
+
+  } else if (request.action === 'getHttpHistoryCount') {
+    (async () => {
+      try {
+        const count = await getHttpHistoryCount();
+        sendResponse({ count });
+      } catch (e) {
+        sendResponse({ count: 0, error: e.message });
+      }
+    })();
+    return true;
+
+  } else if (request.action === 'sqliRequest') {
+    // Verify sender is the extension popup (not a content script or other page)
+    if (!sender.url || !sender.url.startsWith(chrome.runtime.getURL(''))) {
+      sendResponse({ error: 'Unauthorized: only the extension popup can use SQLi Tester', status: 0 });
+      return;
+    }
+
+    const { url, method, headers, body } = request;
+
+    // URL protocol allowlist — only http: and https: are permitted
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        sendResponse({ error: `Protocol "${parsed.protocol}" is not allowed. Use http: or https:`, status: 0 });
+        return;
+      }
+    } catch (e) {
+      sendResponse({ error: 'Invalid URL: ' + e.message, status: 0 });
+      return;
+    }
+
+    (async () => {
+      const controller = new AbortController();
+      const sqliTimeout = request.timeout || 10000;
+      const timeout = setTimeout(() => controller.abort(), sqliTimeout);
+
+      try {
+        const cleanHeaders = { ...(headers || {}) };
+        delete cleanHeaders['Origin'];
+        delete cleanHeaders['Referer'];
+        delete cleanHeaders['User-Agent']; // forbidden fetch header — browser sets this automatically
+
+        const fetchOptions = {
+          method: method || 'GET',
+          headers: cleanHeaders,
+          signal: controller.signal,
+          redirect: 'follow',
+        };
+
+        if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
+          fetchOptions.body = body;
+        }
+
+        const startTime = Date.now();
+        const response = await fetch(url, fetchOptions);
+
+        const MAX_SIZE = 512 * 1024;
+        const bodyText = await response.text();
+        const truncated = bodyText.length > MAX_SIZE;
+        const responseBody = truncated ? bodyText.substring(0, MAX_SIZE) : bodyText;
+
+        const elapsed = Date.now() - startTime;
+
+        const responseHeaders = {};
+        response.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+        });
+
+        try {
+          sendResponse({
+            status: response.status,
+            statusText: response.statusText,
+            headers: responseHeaders,
+            body: responseBody,
+            timing: elapsed,
+            truncated: truncated,
+            size: bodyText.length,
+          });
+        } catch (e) {
+          // Popup may have closed — ignore
+        }
+      } catch (error) {
+        try {
+          sendResponse({
+            error: error.name === 'AbortError' ? `Request timed out (${sqliTimeout / 1000}s)` : error.message,
             status: 0,
           });
         } catch (e) {
@@ -3722,6 +4438,10 @@ async function cleanupStaleTabs() {
       await chrome.storage.local.remove(keysToRemove);
       console.log(`Origami: Cleaned up ${keysToRemove.length} stale storage entries`);
     }
+
+    // Evict old HTTP History entries (IndexedDB)
+    await evictHttpHistory();
+
   } catch (error) {
     console.error('Origami: Cleanup error:', error);
   }

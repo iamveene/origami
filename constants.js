@@ -93,6 +93,18 @@ function origamiNormalizeSecretKey(secretValue) {
   return normalized;
 }
 
+// HTTP History constants
+const ORIGAMI_HTTP_HISTORY_DB_NAME = 'origami_http_history';
+const ORIGAMI_HTTP_HISTORY_DB_VERSION = 1;
+const ORIGAMI_HTTP_HISTORY_STORE = 'requests';
+const ORIGAMI_HTTP_HISTORY_MAX_BODY_SIZE = 512 * 1024; // 500KB per body
+const ORIGAMI_HTTP_HISTORY_RETENTION_DAYS = 7; // metadata retention
+const ORIGAMI_HTTP_HISTORY_BODY_RETENTION_HOURS = 24; // body retention
+const ORIGAMI_HTTP_HISTORY_MAX_TOTAL_SIZE_MB = 200;
+const ORIGAMI_HTTP_HISTORY_PAGE_SIZE = 50;
+const ORIGAMI_HTTP_HISTORY_EXCLUDE_MIME = ['image/', 'font/', 'video/', 'audio/'];
+const ORIGAMI_HTTP_HISTORY_CREDENTIAL_FIELDS = ['password', 'passwd', 'pwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'auth'];
+
 // Stable fingerprint for a finding, used to match AI assessments across scans
 function origamiFindingFingerprint(finding, category) {
   if (category === 'secrets' || finding.full_key || finding.key) {

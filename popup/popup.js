@@ -287,6 +287,12 @@ function setupTabs() {
         loadRepeaterHistory();
         restoreRepeaterFormState();
       }
+
+      // Load HTTP history when switching to History tab
+      if (tabName === 'history') {
+        loadHttpHistoryState();
+        loadHttpHistory();
+      }
     });
   });
 
@@ -295,6 +301,9 @@ function setupTabs() {
 
   // Setup attack lab sub-tabs
   setupAttackLabSubTabs();
+
+  // Setup HTTP History sub-tabs and controls
+  setupHttpHistory();
 
   // Setup collapsible settings sections
   setupCollapsibleSections();
@@ -403,6 +412,8 @@ function setupAttackLabSubTabs() {
       }
     });
   });
+
+  setupSQLiTab();
 }
 
 // Setup event listeners
@@ -435,6 +446,15 @@ function setupEventListeners() {
     });
   }
 
+  // Max AI Partner Iterations slider
+  const aiMaxIterSlider = document.getElementById('aiMaxIterations');
+  const aiMaxIterValue = document.getElementById('aiMaxIterationsValue');
+  if (aiMaxIterSlider && aiMaxIterValue) {
+    aiMaxIterSlider.addEventListener('input', () => {
+      aiMaxIterValue.textContent = aiMaxIterSlider.value;
+    });
+  }
+
   // MCP Bridge
   const mcpTestBtn = document.getElementById('mcpBridgeTestBtn');
   if (mcpTestBtn) {
@@ -464,8 +484,10 @@ function setupEventListeners() {
   document.getElementById('addDomainBtn').addEventListener('click', addWhitelistDomain);
   document.getElementById('addPatternBtn').addEventListener('click', addWhitelistPattern);
   
-  // History
+  // Scan History (both settings button and sub-tab button)
   document.getElementById('clearHistoryBtn').addEventListener('click', clearHistory);
+  const clearScanHistBtn = document.getElementById('clearScanHistoryBtn');
+  if (clearScanHistBtn) clearScanHistBtn.addEventListener('click', clearHistory);
   document.getElementById('historySearchInput').addEventListener('input', filterHistory);
   document.getElementById('historyRiskFilter').addEventListener('change', filterHistory);
 
@@ -2121,6 +2143,12 @@ async function loadCurrentFindings() {
 
             // Show loading overlay in security tab (without destroying sub-tab structure)
             const container = document.getElementById('security-tab');
+            // Skip loading overlay if SQLi (or other) findings are already injected
+            if (securityResults && securityResults.vulnerabilities && securityResults.vulnerabilities.length > 0) {
+              displaySecurityResults(securityResults);
+              securityResultsLoaded = true;
+              return;
+            }
             if (retryCount === 0 && container && !container.querySelector('.security-loading-overlay')) {
               const overlay = document.createElement('div');
               overlay.className = 'security-loading-overlay';
@@ -2148,6 +2176,11 @@ async function loadCurrentFindings() {
               securityResultsLoaded = true;
               console.log('Origami Popup: Security analysis not available - trying domain cache');
               tryRestoreFromDomainCache(tab, 'security').then(restored => {
+                // Don't show empty state if SQLi findings are already injected
+                if (securityResults && securityResults.vulnerabilities && securityResults.vulnerabilities.length > 0) {
+                  displaySecurityResults(securityResults);
+                  return;
+                }
                 if (!restored && container) {
                   // Replace loading overlay with empty-state prompt
                   const existingOverlay = container.querySelector('.security-loading-overlay');
@@ -3330,6 +3363,14 @@ async function loadSettings() {
         if (concValue) concValue.textContent = concSlider.value;
       }
 
+      // Max AI Partner Iterations slider
+      const maxIterSlider = document.getElementById('aiMaxIterations');
+      const maxIterValue = document.getElementById('aiMaxIterationsValue');
+      if (maxIterSlider) {
+        maxIterSlider.value = llm.maxToolIterations || 30;
+        if (maxIterValue) maxIterValue.textContent = maxIterSlider.value;
+      }
+
       // Scoring config settings
       const scoringConfig = currentSettings.scoring_config || {
         types: { secrets: true, headers: true, cookies: true, vulnerabilities: true, sensitiveFiles: true, sca: true, session: true, oauth: true, graphql: true, crypto: true, cloudStorage: true, exfiltration: true, websocket: true },
@@ -3486,7 +3527,8 @@ function saveSettings() {
         apiKey: document.getElementById('llmApiKey').value,
         endpoint: document.getElementById('llmProvider').value === 'ollama' ? document.getElementById('ollamaEndpoint').value : null,
         temperature: 0.3,
-        maxTokens: 2000
+        maxTokens: 2000,
+        maxToolIterations: parseInt(document.getElementById('aiMaxIterations')?.value || '30', 10)
       },
       ai_assessment: {
         types: {
@@ -4728,6 +4770,33 @@ async function generateEnhancedReport() {
       console.warn('Origami: Failed to load some analyzer data for report:', e);
     }
 
+    // Load SQLi Attack Lab findings from storage
+    try {
+      const sqliResp = await new Promise(r => chrome.storage.local.get(['sqli_last_scan'], r));
+      const sqliData = sqliResp && sqliResp.sqli_last_scan;
+      if (sqliData && Array.isArray(sqliData.results)) {
+        const sqliTechNamesE = { B: 'boolean-based blind', E: 'error-based', T: 'time-based blind', U: 'UNION query', S: 'stacked queries' };
+        const confirmedSqliE = sqliData.results.filter(f => f.confirmed);
+        if (confirmedSqliE.length > 0) {
+          const sqliVulnsE = confirmedSqliE.map(f => ({
+            check: `SQL Injection (${sqliTechNamesE[f.technique] || f.technique}) - ${f.param}`,
+            status: 'vulnerable',
+            severity: sqliTechniqueToSeverity(f.technique),
+            message: `Parameter "${f.param}" is injectable via ${sqliTechNamesE[f.technique] || f.technique}. DBMS: ${f.dbms || 'unknown'}.`,
+            recommendation: 'Use parameterized queries (prepared statements). Never concatenate user-controlled input into SQL queries.',
+            source: 'SQLi Attack Lab', uri: sqliData.url || '',
+            timestamp: new Date().toISOString(), matchedText: f.payload || '',
+            sqliData: { technique: f.technique, param: f.param, payload: f.payload, dbms: f.dbms }
+          }));
+          if (!reportData.securityAnalysis) reportData.securityAnalysis = {};
+          if (!reportData.securityAnalysis.vulnerabilities) reportData.securityAnalysis.vulnerabilities = [];
+          reportData.securityAnalysis.vulnerabilities.push(...sqliVulnsE);
+        }
+      }
+    } catch (e) {
+      console.warn('Origami: Failed to load SQLi findings for report:', e);
+    }
+
     // Create report generator
     const generator = new ReportGenerator();
     generator.generate(reportData);
@@ -5698,6 +5767,35 @@ async function generateReportFromTab() {
       } catch (e) {
         console.warn('Origami: Failed to load correlation chains for report:', e);
       }
+    }
+
+    // Load SQLi Attack Lab findings from storage
+    try {
+      const sqliScanResp = await new Promise(r => chrome.storage.local.get(['sqli_last_scan'], r));
+      const sqliData = sqliScanResp && sqliScanResp.sqli_last_scan;
+      if (sqliData && Array.isArray(sqliData.results)) {
+        const sqliTechNames = { B: 'boolean-based blind', E: 'error-based', T: 'time-based blind', U: 'UNION query', S: 'stacked queries' };
+        const confirmedSqli = sqliData.results.filter(f => f.confirmed);
+        if (confirmedSqli.length > 0) {
+          const sqliVulns = confirmedSqli.map(f => ({
+            check: `SQL Injection (${sqliTechNames[f.technique] || f.technique}) - ${f.param}`,
+            status: 'vulnerable',
+            severity: sqliTechniqueToSeverity(f.technique),
+            message: `Parameter "${f.param}" is injectable via ${sqliTechNames[f.technique] || f.technique}. DBMS: ${f.dbms || 'unknown'}.`,
+            recommendation: 'Use parameterized queries (prepared statements). Never concatenate user-controlled input into SQL queries.',
+            source: 'SQLi Attack Lab',
+            uri: sqliData.url || '',
+            timestamp: new Date().toISOString(),
+            matchedText: f.payload || '',
+            sqliData: { technique: f.technique, param: f.param, payload: f.payload, dbms: f.dbms }
+          }));
+          if (!reportData.securityAnalysis) reportData.securityAnalysis = {};
+          if (!reportData.securityAnalysis.vulnerabilities) reportData.securityAnalysis.vulnerabilities = [];
+          reportData.securityAnalysis.vulnerabilities.push(...sqliVulns);
+        }
+      }
+    } catch (e) {
+      console.warn('Origami: Failed to load SQLi findings for report:', e);
     }
 
     // Test Google APIs if requested
@@ -13564,10 +13662,64 @@ if (document.readyState === 'loading') {
 
 // ============================================================
 // AI Partner Chat
+let _chatAbortController = null;
+let chatManager = null;
+// Test hook: allows injecting a mock chatManager without going through openAIPartner
+window._setChatManager = function(cm) { chatManager = cm; };
+
+function stopChatGeneration() {
+  if (_chatAbortController) {
+    _chatAbortController.abort();
+  }
+}
+
 // ============================================================
 
-let chatManager = null;
 let aiPartnerOpen = false;
+var _aiPartnerMode = 'advisor';
+
+function setAIPartnerMode(mode) {
+  _aiPartnerMode = (mode === 'exploiter') ? 'exploiter' : 'advisor';
+  document.querySelectorAll('.ai-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === _aiPartnerMode);
+  });
+  if (chatManager) chatManager.setMode(_aiPartnerMode);
+}
+
+function downloadTranscript() {
+  if (!chatManager) return;
+  const conv = chatManager.getConversation();
+  const lines = [];
+  lines.push('Origami AI Partner - Conversation Transcript');
+  lines.push('Domain: ' + (conv.domain || 'unknown'));
+  lines.push('Mode: ' + (_aiPartnerMode));
+  lines.push('Created: ' + (conv.createdAt || ''));
+  lines.push('');
+
+  conv.messages.forEach(function(msg, idx) {
+    if (msg.role === 'system') return;
+    lines.push('--- ' + (msg.role === 'user' ? 'USER' : 'ASSISTANT') + ' (' + (msg.timestamp || '') + ') ---');
+    lines.push(msg.content || '');
+    if (msg.toolDetails && msg.toolDetails.length > 0) {
+      msg.toolDetails.forEach(function(td) {
+        lines.push('');
+        lines.push('[TOOL CALL] ' + td.tool + ' (' + (td.timestamp || '') + ')');
+        lines.push('params: ' + JSON.stringify(td.params, null, 2));
+        lines.push('result: ' + td.result);
+        lines.push('[/TOOL CALL]');
+      });
+    }
+    lines.push('');
+  });
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'origami-transcript-' + (conv.domain || 'session').replace(/[^a-z0-9]/gi, '_') + '-' + Date.now() + '.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function initAIPartner() {
   // aiPartnerBtn is bound in setupEventListeners() with error handling
@@ -13576,6 +13728,12 @@ function initAIPartner() {
   document.getElementById('aiPartnerMinimized')?.addEventListener('click', restoreAIPartner);
   document.getElementById('aiPartnerNewBtn')?.addEventListener('click', newAIPartnerConversation);
   document.getElementById('aiPartnerSendBtn')?.addEventListener('click', sendChatMessage);
+  document.getElementById('aiPartnerStopBtn')?.addEventListener('click', stopChatGeneration);
+  document.getElementById('aiPartnerDownloadBtn')?.addEventListener('click', downloadTranscript);
+
+  document.querySelectorAll('.ai-mode-btn').forEach(btn => {
+    btn.addEventListener('click', function() { setAIPartnerMode(this.dataset.mode); });
+  });
 
   document.getElementById('aiPartnerInput')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -13648,6 +13806,8 @@ async function openAIPartner() {
       return;
     }
   }
+  // Expose reference so tests can patch sendMessage through the same object
+  window._chatManagerRef = chatManager;
 
   console.log('AI Partner: open complete');
   document.getElementById('aiPartnerInput')?.focus();
@@ -13748,20 +13908,29 @@ async function sendChatMessage() {
   scrollChatToBottom();
 
   const sendBtn = document.getElementById('aiPartnerSendBtn');
-  sendBtn.disabled = true;
+  const stopBtn = document.getElementById('aiPartnerStopBtn');
+  sendBtn.style.display = 'none';
+  if (stopBtn) stopBtn.style.display = '';
+
+  _chatAbortController = new AbortController();
+
+  const onToolCall = (toolName, toolParams, toolResult) => {
+    appendToolIndicator(toolName, toolParams, toolResult);
+    const thinking = document.getElementById('chatThinking');
+    if (thinking) thinking.textContent = toolName;
+    scrollChatToBottom();
+  };
 
   try {
     chatManager.setContext(securityResults, currentFindings);
-    const result = await chatManager.sendMessage(message);
+    chatManager.setMode(_aiPartnerMode);
+    const result = await chatManager.sendMessage(message, {
+      onToolCall: onToolCall,
+      signal: _chatAbortController.signal
+    });
 
     const thinking = document.getElementById('chatThinking');
     if (thinking) thinking.remove();
-
-    if (result.toolsUsed && result.toolsUsed.length > 0) {
-      for (const tool of result.toolsUsed) {
-        appendToolIndicator(tool);
-      }
-    }
 
     appendChatMessage('assistant', result.response);
 
@@ -13772,7 +13941,9 @@ async function sendChatMessage() {
     console.error('Origami: AI Partner error:', error);
     appendChatError('Error: ' + error.message);
   } finally {
-    sendBtn.disabled = false;
+    sendBtn.style.display = '';
+    if (stopBtn) stopBtn.style.display = 'none';
+    _chatAbortController = null;
     document.getElementById('aiPartnerInput').focus();
   }
 }
@@ -13796,11 +13967,71 @@ function appendChatMessage(role, content) {
   scrollChatToBottom();
 }
 
-function appendToolIndicator(toolInfo) {
+function appendToolIndicator(toolName, toolParams, toolResult) {
   const container = document.getElementById('aiPartnerMessages');
   const el = document.createElement('div');
   el.className = 'chat-tool-indicator';
-  el.textContent = toolInfo;
+
+  const hasDetails = toolParams || toolResult;
+
+  const header = document.createElement('div');
+  header.className = 'chat-tool-indicator-header' + (hasDetails ? ' chat-tool-indicator-expandable' : '');
+
+  const arrow = document.createElement('span');
+  arrow.className = 'chat-tool-indicator-arrow';
+  arrow.textContent = hasDetails ? '\u25b6' : '\u2022';
+  header.appendChild(arrow);
+
+  const name = document.createElement('span');
+  name.textContent = toolName || 'unknown tool';
+  header.appendChild(name);
+
+  el.appendChild(header);
+
+  if (hasDetails) {
+    const details = document.createElement('div');
+    details.className = 'chat-tool-indicator-details';
+
+    if (toolParams) {
+      const paramsLabel = document.createElement('div');
+      paramsLabel.className = 'chat-tool-detail-label';
+      paramsLabel.textContent = 'params';
+      details.appendChild(paramsLabel);
+
+      const paramsBlock = document.createElement('pre');
+      paramsBlock.className = 'chat-tool-detail-block';
+      try {
+        paramsBlock.textContent = typeof toolParams === 'object'
+          ? JSON.stringify(toolParams, null, 2)
+          : String(toolParams);
+      } catch (e) {
+        paramsBlock.textContent = String(toolParams);
+      }
+      details.appendChild(paramsBlock);
+    }
+
+    if (toolResult) {
+      const resultLabel = document.createElement('div');
+      resultLabel.className = 'chat-tool-detail-label';
+      resultLabel.textContent = 'result';
+      details.appendChild(resultLabel);
+
+      const resultBlock = document.createElement('pre');
+      resultBlock.className = 'chat-tool-detail-block';
+      const trimmed = String(toolResult);
+      resultBlock.textContent = trimmed.length > 2000 ? trimmed.substring(0, 2000) + '\n[truncated]' : trimmed;
+      details.appendChild(resultBlock);
+    }
+
+    el.appendChild(details);
+
+    header.addEventListener('click', function() {
+      const expanded = el.classList.toggle('chat-tool-indicator-open');
+      arrow.textContent = expanded ? '\u25bc' : '\u25b6';
+      scrollChatToBottom();
+    });
+  }
+
   container.appendChild(el);
 }
 
@@ -16273,4 +16504,1458 @@ function shellEscape(str) {
   if (!str) return "''";
   // Replace each single quote with: end-quote, escaped-quote, start-quote
   return "'" + str.replace(/'/g, "'\\''") + "'";
+}
+
+
+// ============================================================
+// SQLi Attack Tab
+// ============================================================
+
+var _sqliAborted = false;
+var _sqliAiHistory = [];
+var _sqliAiPendingResolve = null;
+var _sqliLastConfig = null;
+
+function setupSQLiTab() {
+  var methodEl = document.getElementById('sqliMethod');
+  var runBtn = document.getElementById('sqliRunBtn');
+  var stopBtn = document.getElementById('sqliStopBtn');
+  var aiModeEl = document.getElementById('sqliAiMode');
+
+  if (!methodEl || !runBtn) return;
+
+  // Show/hide POST body section
+  methodEl.addEventListener('change', function() {
+    var bodySection = document.getElementById('sqliBodySection');
+    if (bodySection) {
+      bodySection.style.display = ['POST', 'PUT'].includes(methodEl.value) ? 'block' : 'none';
+    }
+  });
+
+  // Load URL → parse params
+  document.getElementById('sqliLoadBtn').addEventListener('click', parseSQLiUrlParams);
+
+  // Enter key in URL input
+  document.getElementById('sqliUrl').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') parseSQLiUrlParams();
+  });
+
+  // cURL import
+  document.getElementById('sqliImportCurl').addEventListener('click', function() {
+    var section = document.getElementById('sqliCurlSection');
+    if (section) section.style.display = section.style.display === 'none' ? 'block' : 'none';
+  });
+  document.getElementById('sqliCurlConfirm').addEventListener('click', importSQLiCurl);
+  document.getElementById('sqliCurlCancel').addEventListener('click', function() {
+    document.getElementById('sqliCurlSection').style.display = 'none';
+  });
+
+  // From Repeater History
+  document.getElementById('sqliFromHistory').addEventListener('click', showSQLiHistoryPicker);
+
+  // Run / Stop
+  runBtn.addEventListener('click', runSQLiTest);
+  stopBtn.addEventListener('click', function() {
+    _sqliAborted = true;
+    stopBtn.style.display = 'none';
+    runBtn.style.display = 'inline-flex';
+    appendSQLiLog('warning', 'Scan aborted by user.');
+  });
+
+  // AI mode toggle
+  aiModeEl.addEventListener('change', function() {
+    var controls = document.getElementById('sqliAiControls');
+    if (controls) controls.style.display = aiModeEl.checked ? 'block' : 'none';
+  });
+
+  // AI send
+  document.getElementById('sqliAiSendBtn').addEventListener('click', sendSQLiAiMessage);
+  document.getElementById('sqliAiUserMessage').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendSQLiAiMessage(); }
+  });
+
+  // Restore last scan results on popup open
+  restoreSQLiLastScan();
+}
+
+function parseSQLiUrlParams() {
+  var url = (document.getElementById('sqliUrl').value || '').trim();
+  var method = document.getElementById('sqliMethod').value;
+  var params = [];
+
+  try {
+    var parsed = new URL(url);
+    parsed.searchParams.forEach(function(value, name) {
+      params.push({ name: name, value: value, source: 'url' });
+    });
+  } catch(e) {
+    // invalid URL, still try to render what we have
+  }
+
+  // Also parse POST body if visible
+  var bodySection = document.getElementById('sqliBodySection');
+  if (bodySection && bodySection.style.display !== 'none') {
+    var body = (document.getElementById('sqliBody').value || '').trim();
+    if (body) {
+      // Try JSON
+      try {
+        var json = JSON.parse(body);
+        Object.keys(json).forEach(function(k) {
+          params.push({ name: k, value: String(json[k]), source: 'body-json' });
+        });
+      } catch(e) {
+        // Try form-encoded
+        body.split('&').forEach(function(pair) {
+          var parts = pair.split('=');
+          if (parts.length >= 2) {
+            params.push({ name: decodeURIComponent(parts[0]), value: decodeURIComponent(parts.slice(1).join('=')), source: 'body-form' });
+          }
+        });
+      }
+    }
+  }
+
+  renderSQLiParamPills(params);
+}
+
+function renderSQLiParamPills(params) {
+  var container = document.getElementById('sqliParamsContainer');
+  if (!container) return;
+
+  if (!params || params.length === 0) {
+    container.innerHTML = '<span style="font-size:11px;color:rgba(255,255,255,0.4);">No parameters detected. Enter a URL with query params or a POST body.</span>';
+    return;
+  }
+
+  container.innerHTML = params.map(function(p, i) {
+    return '<div class="sqli-param-pill" data-param-index="' + i + '" data-param-name="' + escapeHtml(p.name) + '" data-param-value="' + escapeHtml(p.value) + '" data-param-source="' + p.source + '">' +
+      '<input type="checkbox" checked title="Include in test">' +
+      '<span>' + escapeHtml(p.name) + '=<em>' + escapeHtml(p.value.substring(0, 20)) + (p.value.length > 20 ? '…' : '') + '</em></span>' +
+      '</div>';
+  }).join('');
+
+  // Toggle disabled class on pill click
+  container.querySelectorAll('.sqli-param-pill').forEach(function(pill) {
+    pill.querySelector('input[type=checkbox]').addEventListener('change', function(e) {
+      pill.classList.toggle('disabled', !e.target.checked);
+    });
+  });
+}
+
+function importSQLiCurl() {
+  var input = document.getElementById('sqliCurlInput').value.trim();
+  if (!input) return;
+
+  try {
+    var parsed = parseCurlCommand(input);
+    document.getElementById('sqliUrl').value = parsed.url || '';
+    document.getElementById('sqliMethod').value = parsed.method || 'GET';
+
+    var method = parsed.method || 'GET';
+    var bodySection = document.getElementById('sqliBodySection');
+    if (bodySection) {
+      bodySection.style.display = ['POST', 'PUT'].includes(method) ? 'block' : 'none';
+    }
+    if (parsed.body && document.getElementById('sqliBody')) {
+      document.getElementById('sqliBody').value = parsed.body;
+    }
+
+    // Close curl section
+    document.getElementById('sqliCurlSection').style.display = 'none';
+    document.getElementById('sqliCurlInput').value = '';
+
+    // Auto-parse params
+    parseSQLiUrlParams();
+  } catch(e) {
+    appendSQLiLog('error', 'cURL parse error: ' + e.message);
+  }
+}
+
+function showSQLiHistoryPicker() {
+  // Use the repeater history array if available
+  var history = (typeof _repeaterHistory !== 'undefined' ? _repeaterHistory : []);
+  if (!history || history.length === 0) {
+    appendSQLiLog('warning', 'No Repeater history found. Send requests via the Repeater tab first.');
+    return;
+  }
+
+  // Build a simple inline picker below the import bar
+  var container = document.getElementById('sqliParamsContainer');
+  if (!container) return;
+
+  container.innerHTML = '<div style="font-size:12px;margin-bottom:4px;font-weight:600;">Select a request from Repeater history:</div>' +
+    history.slice(0, 20).map(function(entry, i) {
+      var statusBadge = entry.statusCode ? ' [' + entry.statusCode + ']' : '';
+      return '<div class="sqli-history-pick-item" data-index="' + i + '" style="padding:4px 8px;cursor:pointer;font-size:11px;border-radius:3px;margin-bottom:2px;background:rgba(255,255,255,0.04);">' +
+        '<strong>' + escapeHtml(entry.method || 'GET') + '</strong> ' +
+        escapeHtml((entry.url || '').substring(0, 80)) + statusBadge +
+        '</div>';
+    }).join('');
+
+  container.querySelectorAll('.sqli-history-pick-item').forEach(function(item) {
+    item.addEventListener('click', function() {
+      var idx = parseInt(item.dataset.index, 10);
+      var entry = history[idx];
+      if (!entry) return;
+
+      document.getElementById('sqliUrl').value = entry.url || '';
+      document.getElementById('sqliMethod').value = entry.method || 'GET';
+
+      var bodySection = document.getElementById('sqliBodySection');
+      if (bodySection) {
+        bodySection.style.display = ['POST', 'PUT'].includes(entry.method) ? 'block' : 'none';
+      }
+      if (entry.body && document.getElementById('sqliBody')) {
+        document.getElementById('sqliBody').value = entry.body;
+      }
+
+      parseSQLiUrlParams();
+    });
+  });
+}
+
+function collectSQLiConfig() {
+  var url = (document.getElementById('sqliUrl').value || '').trim();
+  var method = document.getElementById('sqliMethod').value || 'GET';
+  var body = (document.getElementById('sqliBody').value || '').trim();
+  var dbms = document.getElementById('sqliDbms').value || 'auto';
+  var delay = parseInt(document.getElementById('sqliDelay').value, 10) || 5;
+  var risk = parseInt(document.getElementById('sqliRisk').value, 10) || 1;
+  var aiMode = document.getElementById('sqliAiMode').checked;
+  var aiInstructions = (document.getElementById('sqliAiInstructions').value || '').trim();
+
+  // Collect enabled techniques
+  var techniques = new Set();
+  document.querySelectorAll('.sqli-tech:checked').forEach(function(cb) {
+    techniques.add(cb.value);
+  });
+
+  // Collect enabled params from pills
+  var params = [];
+  document.querySelectorAll('.sqli-param-pill:not(.disabled)').forEach(function(pill) {
+    params.push({
+      name: pill.dataset.paramName,
+      value: pill.dataset.paramValue,
+      source: pill.dataset.paramSource
+    });
+  });
+
+  return { url: url, method: method, body: body, dbms: dbms, delay: delay, risk: risk,
+           techniques: techniques, params: params, aiMode: aiMode, aiInstructions: aiInstructions };
+}
+
+async function sqliSendRequest(reqConfig) {
+  return new Promise(function(resolve) {
+    chrome.runtime.sendMessage({
+      action: 'sqliRequest',
+      url: reqConfig.url,
+      method: reqConfig.method || 'GET',
+      headers: reqConfig.headers || {},
+      body: reqConfig.body || null,
+      timeout: reqConfig.timeout || 10000
+    }, function(response) {
+      if (chrome.runtime.lastError) {
+        resolve({ error: chrome.runtime.lastError.message, status: 0 });
+      } else {
+        resolve(response || { error: 'No response', status: 0 });
+      }
+    });
+  });
+}
+
+async function runSQLiTest() {
+  var config = collectSQLiConfig();
+
+  if (!config.url) {
+    appendSQLiLog('error', 'Enter a target URL first.');
+    return;
+  }
+
+  try { new URL(config.url); } catch(e) {
+    appendSQLiLog('error', 'Invalid URL: ' + config.url);
+    return;
+  }
+
+  if (config.params.length === 0) {
+    appendSQLiLog('warning', 'No parameters to test. Load the URL to detect parameters, or add params to the URL.');
+    return;
+  }
+
+  // Reset state
+  _sqliAborted = false;
+  _sqliAiHistory = [];
+  _sqliLastConfig = config;
+
+  // Clear stored results for this scan (will be overwritten on completion)
+  chrome.storage.local.remove('sqli_last_scan');
+
+  // UI state
+  document.getElementById('sqliRunBtn').style.display = 'none';
+  document.getElementById('sqliStopBtn').style.display = 'inline-flex';
+  document.getElementById('sqliProgress').style.display = 'block';
+  document.getElementById('sqliResults').innerHTML = '';
+  document.getElementById('sqliLog').innerHTML = '';
+  document.getElementById('sqliProgressFill').style.width = '0%';
+
+  appendSQLiLog('info', 'Starting SQL injection test on ' + config.url);
+  appendSQLiLog('info', 'Parameters: ' + config.params.map(function(p){ return p.name; }).join(', '));
+  appendSQLiLog('info', 'Techniques: ' + Array.from(config.techniques).join('') + ' | DBMS: ' + config.dbms + ' | Delay: ' + config.delay + 's');
+
+  var results = [];
+  try {
+    var tester = new SQLiTester(config, {
+      onProgress: function(phase, param, pct) {
+        updateSQLiProgress(phase, param, pct);
+      },
+      onLog: function(level, msg) {
+        appendSQLiLog(level, msg);
+      },
+      onResult: function(finding) {
+        results.push(finding);
+        appendSQLiResult(finding);
+      },
+      sendRequest: sqliSendRequest,
+      shouldAbort: function() { return _sqliAborted; }
+    });
+
+    var allResults = await tester.run();
+    // allResults may include additional items not emitted via onResult
+    allResults.forEach(function(r) {
+      if (!results.find(function(existing) {
+        return existing.technique === r.technique && existing.param === r.param && existing.payload === r.payload;
+      })) {
+        results.push(r);
+        appendSQLiResult(r);
+      }
+    });
+
+    renderSQLiFinalSummary(results);
+    saveSQLiLastScan(config.url, config.method, results);
+    injectSQLiFindingsIntoSecurityResults(config.url, results);
+
+    if (config.aiMode && !_sqliAborted) {
+      appendSQLiLog('info', 'Starting AI-assisted analysis...');
+      appendSQLiAiChat('system', 'Automated scan complete. Starting AI agent analysis...');
+      startSQLiAiAgent(config, results);
+    }
+  } catch(e) {
+    if (e && e.name === 'SQLiTesterAbortError') {
+      appendSQLiLog('warning', 'Scan aborted.');
+    } else {
+      appendSQLiLog('error', 'Test error: ' + (e ? e.message : 'Unknown error'));
+    }
+  } finally {
+    document.getElementById('sqliRunBtn').style.display = 'inline-flex';
+    document.getElementById('sqliStopBtn').style.display = 'none';
+    updateSQLiProgress('Done', '', 100);
+    setTimeout(function() {
+      document.getElementById('sqliProgress').style.display = 'none';
+    }, 1500);
+  }
+}
+
+function updateSQLiProgress(phase, param, pct) {
+  var fill = document.getElementById('sqliProgressFill');
+  var label = document.getElementById('sqliProgressLabel');
+  if (fill) fill.style.width = Math.min(100, pct) + '%';
+  if (label) {
+    var paramStr = param ? ' [' + param + ']' : '';
+    label.textContent = phase + paramStr + ' — ' + Math.round(pct) + '%';
+  }
+}
+
+function appendSQLiLog(level, msg) {
+  var log = document.getElementById('sqliLog');
+  if (!log) return;
+  var line = document.createElement('div');
+  line.className = 'sqli-log-line ' + (level || 'info');
+  var prefix = { info: '[*]', warning: '[!]', success: '[+]', error: '[-]' }[level] || '[*]';
+  line.textContent = prefix + ' ' + msg;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function appendSQLiResult(finding) {
+  var container = document.getElementById('sqliResults');
+  if (!container) return;
+
+  // Remove empty-state if present
+  var empty = container.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  var card = document.createElement('div');
+  card.className = 'sqli-result-card ' + (finding.confirmed ? 'confirmed' : 'potential');
+
+  var techBadge = '<span class="sqli-technique-badge ' + (finding.technique || '') + '">' + (finding.technique || '?') + '</span>';
+  var statusLabel = finding.confirmed
+    ? '<span class="sqli-result-status confirmed">INJECTABLE</span>'
+    : '<span class="sqli-result-status potential">POTENTIAL</span>';
+
+  var dbmsStr = finding.dbms && finding.dbms !== 'unknown' ? finding.dbms.toUpperCase() : '';
+  var dbmsBadge = dbmsStr ? '<span class="sqli-result-dbms">' + escapeHtml(dbmsStr) + '</span>' : '';
+
+  var payloadHtml = finding.payload
+    ? '<div class="sqli-result-payload">' + escapeHtml(finding.payload.substring(0, 200)) + '</div>'
+    : '';
+
+  var evidenceHtml = finding.evidence
+    ? '<div class="sqli-result-evidence">' + escapeHtml(finding.evidence.substring(0, 150)) + '</div>'
+    : '';
+
+  var actionsHtml = '';
+  if (finding.confirmed) {
+    actionsHtml =
+      '<div class="sqli-result-actions">' +
+      '<button class="sqli-action-btn" data-action="repeater">&#8634; Repeater</button>' +
+      '<button class="sqli-action-btn" data-action="aipartner">&#x2728; AI Partner</button>' +
+      '</div>';
+  }
+
+  card.innerHTML =
+    '<div class="sqli-result-header">' + techBadge + statusLabel +
+    '<span class="sqli-result-param">' + escapeHtml(finding.param || '') + '</span>' +
+    dbmsBadge + '</div>' +
+    '<div class="sqli-result-title">' + escapeHtml(finding.title || finding.description || '') + '</div>' +
+    payloadHtml + evidenceHtml + actionsHtml;
+
+  // Wire action buttons
+  if (finding.confirmed) {
+    var repeaterBtn = card.querySelector('[data-action="repeater"]');
+    var aiBtn = card.querySelector('[data-action="aipartner"]');
+    if (repeaterBtn) repeaterBtn.addEventListener('click', function() { sqliSendFindingToRepeater(finding); });
+    if (aiBtn) aiBtn.addEventListener('click', function() { sqliSendFindingToAiPartner(finding); });
+  }
+
+  container.appendChild(card);
+}
+
+function renderSQLiFinalSummary(results) {
+  var container = document.getElementById('sqliResults');
+  if (!container) return;
+
+  var confirmed = results.filter(function(r) { return r.confirmed; });
+
+  var summaryCard = document.createElement('div');
+
+  if (confirmed.length === 0) {
+    summaryCard.className = 'sqli-summary-not-vuln';
+    summaryCard.textContent = 'No confirmed SQL injection vulnerabilities found for the tested parameters.';
+  } else {
+    summaryCard.className = 'sqli-summary-card';
+    var techniques = {};
+    var params = new Set();
+    var dbmsList = new Set();
+    confirmed.forEach(function(r) {
+      techniques[r.technique] = (techniques[r.technique] || 0) + 1;
+      if (r.param) params.add(r.param);
+      if (r.dbms && r.dbms !== 'unknown') dbmsList.add(r.dbms);
+    });
+
+    var techNames = { B: 'boolean-based blind', E: 'error-based', T: 'time-based blind', U: 'UNION query', S: 'stacked queries' };
+    var techSummary = Object.keys(techniques).map(function(t) {
+      return techNames[t] || t;
+    }).join(', ');
+
+    summaryCard.innerHTML =
+      '<h4>SQL Injection Confirmed</h4>' +
+      '<p>Parameter(s): <strong>' + Array.from(params).map(escapeHtml).join(', ') + '</strong></p>' +
+      '<p>Techniques: ' + escapeHtml(techSummary) + '</p>' +
+      (dbmsList.size > 0 ? '<p>DBMS: <strong>' + escapeHtml(Array.from(dbmsList).join(', ')) + '</strong></p>' : '') +
+      '<p>' + confirmed.length + ' injection point(s) confirmed.</p>';
+  }
+
+  // Insert summary before the finding cards
+  container.insertBefore(summaryCard, container.firstChild);
+}
+
+function sqliSendFindingToRepeater(finding) {
+  var config = _sqliLastConfig;
+  if (!config || !config.url) return;
+
+  // Build the URL (or body) with the confirmed payload injected
+  var targetUrl = config.url;
+  var targetBody = config.body || null;
+  var method = (config.method || 'GET').toUpperCase();
+
+  try {
+    var paramValue = '';
+    if (Array.isArray(config.params)) {
+      var p = config.params.find(function(x) { return x.name === finding.param; });
+      if (p) paramValue = p.value != null ? String(p.value) : '';
+    } else if (config.params) {
+      paramValue = config.params[finding.param] != null ? String(config.params[finding.param]) : '';
+    }
+
+    var injectedValue = paramValue + (finding.payload || '');
+
+    if (method === 'GET') {
+      var parsedUrl = new URL(config.url);
+      parsedUrl.searchParams.set(finding.param, injectedValue);
+      targetUrl = parsedUrl.toString();
+    } else {
+      targetBody = buildSQLiBodyWithParam(config.body, finding.param, injectedValue);
+    }
+  } catch(e) {
+    targetUrl = config.url;
+  }
+
+  // Navigate to the Repeater tab and pre-load the request
+  document.querySelector('[data-tab="attack-lab"]')?.click();
+  setTimeout(function() {
+    document.querySelector('[data-tab="repeater"]')?.click();
+    setTimeout(function() {
+      var methodEl = document.getElementById('repeater-method');
+      var urlEl = document.getElementById('repeater-url');
+      var bodyEl = document.getElementById('repeater-body');
+
+      if (methodEl) methodEl.value = method;
+      if (urlEl) urlEl.value = targetUrl;
+      if (bodyEl && targetBody) bodyEl.value = targetBody;
+
+      // Add a comment header noting this came from SQLi
+      if (typeof addRepeaterHeader === 'function') {
+        addRepeaterHeader();
+        var rows = document.querySelectorAll('.repeater-header-row');
+        var last = rows[rows.length - 1];
+        if (last) {
+          var k = last.querySelector('.repeater-header-key');
+          var v = last.querySelector('.repeater-header-value');
+          if (k) k.value = 'X-SQLi-Finding';
+          if (v) v.value = finding.technique + ' on ' + finding.param + (finding.dbms ? ' [' + finding.dbms + ']' : '');
+        }
+      }
+
+      showMessage('SQLi payload loaded in Repeater', 'success');
+    }, 50);
+  }, 50);
+}
+
+function sqliSendFindingToAiPartner(finding) {
+  var config = _sqliLastConfig;
+  var techNames = { B: 'boolean-based blind', E: 'error-based', T: 'time-based blind', U: 'UNION query', S: 'stacked queries' };
+  var techName = techNames[finding.technique] || finding.technique || 'unknown';
+  var targetUrl = config ? config.url : 'unknown';
+  var method = config ? (config.method || 'GET') : 'GET';
+
+  var context =
+    'SQL injection confirmed in parameter "' + (finding.param || 'unknown') + '".\n' +
+    'Target: ' + targetUrl + '\n' +
+    'Method: ' + method + '\n' +
+    'Technique: ' + techName + (finding.dbms ? ' (' + finding.dbms + ')' : '') + '\n\n' +
+    'Authorization scope: Authorized test target confirmed via Origami Attack Lab.\n\n' +
+    'MANDATORY FIRST ACTION: Call send_http_request with the baseline URL right now. ' +
+    'Do not write any analysis or extracted data until you have [TOOL_RESULT] blocks to cite. ' +
+    'After the baseline, enumerate tables, then extract data — reporting only verbatim response content.';
+
+  openAIPartner().then(function() {
+    setTimeout(function() {
+      setAIPartnerMode('exploiter');
+      var input = document.getElementById('aiPartnerInput');
+      if (input) {
+        input.value = context;
+        input.dispatchEvent(new Event('input'));
+      }
+      // Auto-send so the AI starts working immediately
+      sendChatMessage();
+    }, 400);
+  }).catch(function(e) {
+    console.warn('SQLi: Failed to open AI Partner:', e);
+    showMessage('Open AI Partner failed: ' + e.message, 'error');
+  });
+}
+
+function sqliTechniqueToSeverity(technique) {
+  var map = { U: 'CRITICAL', E: 'CRITICAL', S: 'CRITICAL', B: 'HIGH', T: 'HIGH' };
+  return map[technique] || 'HIGH';
+}
+
+function injectSQLiFindingsIntoSecurityResults(url, findings) {
+  var techNames = { B: 'boolean-based blind', E: 'error-based', T: 'time-based blind', U: 'UNION query', S: 'stacked queries' };
+  var confirmed = findings.filter(function(f) { return f.confirmed; });
+  if (confirmed.length === 0) return;
+
+  var vulnFindings = confirmed.map(function(f) {
+    var techName = techNames[f.technique] || f.technique;
+    var severity = sqliTechniqueToSeverity(f.technique);
+    return {
+      check: 'SQL Injection (' + techName + ') - ' + f.param,
+      status: 'vulnerable',
+      severity: severity,
+      message: 'Parameter "' + f.param + '" is injectable via ' + techName + '. DBMS: ' + (f.dbms || 'unknown') + '.',
+      recommendation: 'Use parameterized queries (prepared statements). Never concatenate user-controlled input into SQL queries.',
+      source: 'SQLi Attack Lab',
+      uri: url,
+      timestamp: new Date().toISOString(),
+      lineNumber: null,
+      codeContext: null,
+      matchedText: f.payload || '',
+      sqliData: { technique: f.technique, param: f.param, payload: f.payload, dbms: f.dbms }
+    };
+  });
+
+  // Merge into live securityResults so they show in Security > Vulnerabilities tab.
+  // If no page scan has run yet, bootstrap a minimal results object so the Security
+  // tab nav becomes visible (it stays hidden until displaySecurityResults() is called).
+  if (!securityResults) {
+    securityResults = { headers: [], cookies: [], vulnerabilities: [], sensitiveFiles: [] };
+  }
+  if (!securityResults.vulnerabilities) securityResults.vulnerabilities = [];
+  securityResults.vulnerabilities = securityResults.vulnerabilities.filter(function(f) { return !f.sqliData; });
+  securityResults.vulnerabilities.push.apply(securityResults.vulnerabilities, vulnFindings);
+  displaySecurityResults(securityResults);
+
+  // Also merge into window.currentSecurityFindings for report generation
+  if (!window.currentSecurityFindings) window.currentSecurityFindings = {};
+  if (!window.currentSecurityFindings.vulnerabilities) window.currentSecurityFindings.vulnerabilities = [];
+  window.currentSecurityFindings.vulnerabilities = window.currentSecurityFindings.vulnerabilities.filter(function(f) { return !f.sqliData; });
+  window.currentSecurityFindings.vulnerabilities.push.apply(window.currentSecurityFindings.vulnerabilities, vulnFindings);
+}
+
+function saveSQLiLastScan(url, method, results) {
+  // Attach severity before persisting
+  var resultsWithSeverity = results.map(function(f) {
+    return Object.assign({}, f, { severity: sqliTechniqueToSeverity(f.technique) });
+  });
+  try {
+    chrome.storage.local.set({
+      sqli_last_scan: { url: url, method: method || 'GET', results: resultsWithSeverity, timestamp: Date.now() }
+    });
+  } catch(e) {}
+}
+
+function restoreSQLiLastScan() {
+  chrome.storage.local.get(['sqli_last_scan'], function(items) {
+    var data = items.sqli_last_scan;
+    if (!data || !Array.isArray(data.results)) return;
+    // Only restore scans from within the last 24 hours
+    if (Date.now() - (data.timestamp || 0) > 86400000) return;
+
+    var urlEl = document.getElementById('sqliUrl');
+    var methodEl = document.getElementById('sqliMethod');
+    if (urlEl && data.url) urlEl.value = data.url;
+    if (methodEl && data.method) methodEl.value = data.method;
+
+    var container = document.getElementById('sqliResults');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (data.results.length > 0) {
+      data.results.forEach(function(finding) { appendSQLiResult(finding); });
+      renderSQLiFinalSummary(data.results);
+      injectSQLiFindingsIntoSecurityResults(data.url, data.results);
+    }
+
+    var ts = data.timestamp ? new Date(data.timestamp).toLocaleString() : '';
+    appendSQLiLog('info', 'Results restored from previous scan on ' + (data.url || '') + (ts ? ' at ' + ts : ''));
+  });
+}
+
+async function startSQLiAiAgent(config, initialResults) {
+  var MAX_ROUNDS = 20;
+  var round = 0;
+  _sqliAiHistory = [];
+  _sqliAiPendingResolve = null;
+
+  while (!_sqliAborted && round < MAX_ROUNDS) {
+    round++;
+
+    var target = {
+      url: config.url,
+      method: config.method,
+      params: config.params
+    };
+
+    var promptText;
+    try {
+      promptText = SecurityPrompts.sqliAgentTurn(target, initialResults, _sqliAiHistory, config.aiInstructions);
+    } catch(e) {
+      appendSQLiLog('error', 'AI prompt build error: ' + e.message);
+      break;
+    }
+
+    appendSQLiAiChat('system', 'Round ' + round + ' — asking AI for next action...');
+
+    var llmResponse = await sqliAiLlmRequest(promptText);
+    if (!llmResponse || llmResponse.error) {
+      var errMsg = llmResponse ? llmResponse.error : 'No response from LLM';
+      appendSQLiLog('error', 'AI request failed: ' + errMsg);
+      appendSQLiAiChat('system', 'LLM error: ' + errMsg + '. Check LLM configuration in Settings.');
+      break;
+    }
+
+    var responseText = llmResponse.text || llmResponse.response || '';
+    var parsed = parseSQLiAiResponse(responseText);
+
+    if (!parsed) {
+      appendSQLiLog('warning', 'AI response could not be parsed. Stopping agent.');
+      appendSQLiAiChat('system', 'AI response could not be parsed. The model may have returned an unexpected format. Stopping agent.');
+      break;
+    }
+
+    if (parsed.action === 'CONCLUDE') {
+      appendSQLiAiChat('assistant', parsed.summary || responseText);
+      appendSQLiLog('success', 'AI agent concluded analysis.');
+      break;
+    }
+
+    if (parsed.action === 'REQUEST_INFO') {
+      appendSQLiAiChat('assistant', parsed.question || 'What additional information can you provide?');
+      // Pause and wait for user reply
+      var userReply = await waitForSQLiAiUserMessage();
+      if (userReply === null) break; // aborted
+      _sqliAiHistory.push({ action: 'user_reply', content: userReply, round: round });
+      continue;
+    }
+
+    if (parsed.action === 'RUN_TEST') {
+      appendSQLiAiChat('assistant', parsed.reasoning || 'Running test...');
+
+      // Build the test URL with the param replaced
+      var testUrl = config.url;
+      var testBody = config.body || null;
+      try {
+        var parsedUrl = new URL(config.url);
+        if (config.method === 'GET') {
+          parsedUrl.searchParams.set(parsed.param, parsed.payload);
+          testUrl = parsedUrl.toString();
+        } else {
+          testBody = buildSQLiBodyWithParam(config.body, parsed.param, parsed.payload);
+        }
+      } catch(e) {
+        appendSQLiLog('error', 'Failed to build test URL: ' + e.message);
+        break;
+      }
+
+      var testResult = await sqliSendRequest({
+        url: testUrl,
+        method: config.method,
+        headers: config.headers || {},
+        body: testBody,
+        timeout: (config.delay + 2) * 1000
+      });
+
+      var historyEntry = {
+        action: 'RUN_TEST',
+        param: parsed.param,
+        payload: parsed.payload,
+        reasoning: parsed.reasoning,
+        round: round,
+        response: {
+          status: testResult.status,
+          timing: testResult.timing,
+          body_snippet: (testResult.body || '').substring(0, 300)
+        }
+      };
+      _sqliAiHistory.push(historyEntry);
+
+      // Add AI test request to Repeater history so user can inspect it
+      addToRepeaterHistory(
+        { url: testUrl, method: config.method, headers: config.headers || {}, body: testBody, bodyMode: 'raw' },
+        { status: testResult.status, statusText: String(testResult.status || ''), body: testResult.body || '', headers: {}, timing: testResult.timing || 0, error: testResult.error || null }
+      );
+
+      var resultSummary = 'Status: ' + (testResult.status || 'error') +
+        ' | Time: ' + (testResult.timing || '?') + 'ms' +
+        ' | Length: ' + (testResult.body || '').length + 'B' +
+        (testResult.error ? ' | Error: ' + testResult.error : '') +
+        '\nPayload: ' + escapeHtml((parsed.payload || '').substring(0, 100)) +
+        '\nBody preview: ' + escapeHtml((testResult.body || '').substring(0, 200));
+      appendSQLiAiChat('system', resultSummary);
+    }
+  }
+
+  if (round >= MAX_ROUNDS) {
+    appendSQLiLog('warning', 'AI agent reached maximum rounds (' + MAX_ROUNDS + '). Stopping.');
+    appendSQLiAiChat('assistant', 'Maximum test rounds reached. Review the findings above for confirmed injections.');
+  }
+}
+
+async function sqliAiLlmRequest(promptText) {
+  try {
+    if (typeof LLMManager === 'undefined') {
+      return { error: 'LLMManager not loaded' };
+    }
+    var llmSettings = await getLLMSettings();
+    if (!llmSettings || !llmSettings.enabled || llmSettings.provider === 'none') {
+      return { error: 'LLM not configured. Please configure an API key in Settings.' };
+    }
+    var manager = new LLMManager(llmSettings.provider, llmSettings.apiKey, llmSettings.endpoint);
+    manager.setModel(llmSettings.model || 'claude-sonnet-4-6');
+    var result = await manager.analyze(promptText, null, { maxTokens: 600 });
+    return { text: result.response };
+  } catch(e) {
+    return { error: e.message };
+  }
+}
+
+function parseSQLiAiResponse(text) {
+  if (!text) return null;
+
+  var actionMatch = text.match(/<action>(.*?)<\/action>/s);
+  if (!actionMatch) return null;
+  var action = actionMatch[1].trim();
+
+  if (action === 'CONCLUDE') {
+    var summaryMatch = text.match(/<summary>([\s\S]*?)<\/summary>/);
+    return { action: 'CONCLUDE', summary: summaryMatch ? summaryMatch[1].trim() : text };
+  }
+
+  if (action === 'REQUEST_INFO') {
+    var questionMatch = text.match(/<question>([\s\S]*?)<\/question>/);
+    return { action: 'REQUEST_INFO', question: questionMatch ? questionMatch[1].trim() : '' };
+  }
+
+  if (action === 'RUN_TEST') {
+    var paramMatch = text.match(/<param>([\s\S]*?)<\/param>/);
+    var payloadMatch = text.match(/<payload>([\s\S]*?)<\/payload>/);
+    var reasoningMatch = text.match(/<reasoning>([\s\S]*?)<\/reasoning>/);
+    return {
+      action: 'RUN_TEST',
+      param: paramMatch ? paramMatch[1].trim() : '',
+      payload: payloadMatch ? payloadMatch[1].trim() : '',
+      reasoning: reasoningMatch ? reasoningMatch[1].trim() : ''
+    };
+  }
+
+  return null;
+}
+
+function waitForSQLiAiUserMessage() {
+  return new Promise(function(resolve) {
+    _sqliAiPendingResolve = function(msg) {
+      _sqliAiPendingResolve = null;
+      resolve(msg);
+    };
+    // Also resolve null if aborted after 5 minutes
+    setTimeout(function() {
+      if (_sqliAiPendingResolve) {
+        _sqliAiPendingResolve = null;
+        resolve(null);
+      }
+    }, 300000);
+  });
+}
+
+function sendSQLiAiMessage() {
+  var input = document.getElementById('sqliAiUserMessage');
+  if (!input) return;
+  var msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  appendSQLiAiChat('user', msg);
+  if (_sqliAiPendingResolve) {
+    _sqliAiPendingResolve(msg);
+  } else {
+    appendSQLiAiChat('system', 'Agent is not waiting for input. Enable "AI-Assisted Attack", run a scan, and the agent will ask when it needs guidance. Use the main AI Partner tab for general analysis.');
+  }
+}
+
+function appendSQLiAiChat(role, content) {
+  var chat = document.getElementById('sqliAiChat');
+  if (!chat) return;
+  var msg = document.createElement('div');
+  msg.className = 'sqli-ai-msg ' + role;
+  var roleLabel = { user: 'You', assistant: 'AI', system: 'Test' }[role] || role;
+  msg.innerHTML = '<div class="sqli-ai-role">' + roleLabel + '</div>' + escapeHtml(content);
+  chat.appendChild(msg);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function buildSQLiBodyWithParam(body, paramName, payload) {
+  if (!body) return paramName + '=' + encodeURIComponent(payload);
+  // Try JSON
+  try {
+    var json = JSON.parse(body);
+    if (paramName in json) {
+      json[paramName] = payload;
+      return JSON.stringify(json);
+    }
+  } catch(e) {}
+  // Form-encoded
+  var parts = body.split('&').map(function(pair) {
+    var eq = pair.indexOf('=');
+    if (eq === -1) return pair;
+    var k = decodeURIComponent(pair.substring(0, eq));
+    if (k === paramName) return encodeURIComponent(paramName) + '=' + encodeURIComponent(payload);
+    return pair;
+  });
+  return parts.join('&');
+}
+
+// ============================================================================
+// HTTP History Feature
+// ============================================================================
+
+let httpHistoryEntries = [];
+let httpHistoryOffset = 0;
+let httpHistoryTotal = 0;
+let httpHistorySelectedId = null;
+let httpHistoryCaptureActive = false;
+let httpHistoryFullCaptureActive = false;
+
+function setupHttpHistory() {
+  // Sub-tab switching
+  document.querySelectorAll('.history-sub-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.history-sub-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.history-subtab-pane').forEach(p => {
+        p.classList.remove('active');
+        p.style.display = 'none';
+      });
+      btn.classList.add('active');
+      const target = btn.dataset.historyTab;
+      const pane = document.getElementById(target + '-subtab');
+      if (pane) {
+        pane.classList.add('active');
+        pane.style.display = 'block';
+      }
+      if (target === 'http-traffic') {
+        loadHttpHistory();
+      }
+      if (target === 'scan-history') {
+        loadHistory();
+      }
+    });
+  });
+
+  // Capture toggle
+  const captureToggle = document.getElementById('httpCaptureToggle');
+  if (captureToggle) {
+    captureToggle.addEventListener('change', () => {
+      const enabled = captureToggle.checked;
+      const scope = document.getElementById('httpCaptureScope').value;
+      chrome.runtime.sendMessage({
+        action: 'toggleHttpCapture',
+        enabled: enabled,
+        scope: scope
+      }, (resp) => {
+        httpHistoryCaptureActive = resp?.enabled || false;
+        updateHttpCaptureUI();
+      });
+    });
+  }
+
+  // Full Capture toggle
+  const fullCaptureToggle = document.getElementById('httpFullCaptureToggle');
+  if (fullCaptureToggle) {
+    fullCaptureToggle.addEventListener('change', () => {
+      if (fullCaptureToggle.checked) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (!tabs[0]) return;
+          chrome.runtime.sendMessage({
+            action: 'enableFullCapture',
+            tabId: tabs[0].id
+          }, (resp) => {
+            if (resp?.success) {
+              httpHistoryFullCaptureActive = true;
+              showMessage('Full Capture enabled -- yellow debug bar will appear', 'info');
+            } else {
+              fullCaptureToggle.checked = false;
+              showMessage('Failed to enable Full Capture: ' + (resp?.error || 'unknown'), 'error');
+            }
+          });
+        });
+      } else {
+        chrome.runtime.sendMessage({ action: 'disableFullCapture' }, () => {
+          httpHistoryFullCaptureActive = false;
+        });
+      }
+    });
+  }
+
+  // Scope change
+  const scopeSelect = document.getElementById('httpCaptureScope');
+  if (scopeSelect) {
+    scopeSelect.addEventListener('change', () => {
+      if (httpHistoryCaptureActive) {
+        chrome.runtime.sendMessage({
+          action: 'toggleHttpCapture',
+          enabled: true,
+          scope: scopeSelect.value
+        });
+      }
+    });
+  }
+
+  // Clear button
+  const clearBtn = document.getElementById('httpHistClearBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      if (!confirm('Clear all HTTP traffic history? This cannot be undone.')) return;
+      chrome.runtime.sendMessage({ action: 'clearHttpHistory' }, () => {
+        httpHistoryEntries = [];
+        httpHistoryOffset = 0;
+        httpHistoryTotal = 0;
+        httpHistorySelectedId = null;
+        renderHttpHistoryTable();
+        hideHttpHistoryDetail();
+        showMessage('HTTP History cleared', 'success');
+      });
+    });
+  }
+
+  // Export button
+  const exportBtn = document.getElementById('httpHistExportBtn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', exportHttpHistory);
+  }
+
+  // Filter controls
+  ['httpHistSearch', 'httpHistMethodFilter', 'httpHistStatusFilter', 'httpHistTypeFilter'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener(id === 'httpHistSearch' ? 'input' : 'change', () => {
+        httpHistoryOffset = 0;
+        httpHistoryEntries = [];
+        loadHttpHistory();
+      });
+    }
+  });
+
+  // Load More
+  const loadMoreBtn = document.getElementById('httpHistLoadMore');
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', () => {
+      httpHistoryOffset += 50;
+      loadHttpHistory(true);
+    });
+  }
+
+  // Detail panel tabs
+  document.querySelectorAll('.http-hist-detail-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.http-hist-detail-tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.http-hist-detail-pane').forEach(p => {
+        p.classList.remove('active');
+        p.style.display = 'none';
+      });
+      btn.classList.add('active');
+      const target = document.getElementById('httpHistDetail' + capitalize(btn.dataset.detailTab));
+      if (target) {
+        target.classList.add('active');
+        target.style.display = 'block';
+      }
+    });
+  });
+
+  // Detail action buttons
+  const sendRepeaterBtn = document.getElementById('httpHistSendRepeater');
+  if (sendRepeaterBtn) {
+    sendRepeaterBtn.addEventListener('click', () => {
+      if (httpHistorySelectedId !== null) {
+        sendHttpHistoryToRepeater(httpHistorySelectedId);
+      }
+    });
+  }
+
+  const copyCurlBtn = document.getElementById('httpHistCopyCurl');
+  if (copyCurlBtn) {
+    copyCurlBtn.addEventListener('click', () => {
+      if (httpHistorySelectedId !== null) {
+        copyHttpHistoryAsCurl(httpHistorySelectedId);
+      }
+    });
+  }
+
+  const pinBtn = document.getElementById('httpHistPinBtn');
+  if (pinBtn) {
+    pinBtn.addEventListener('click', () => {
+      if (httpHistorySelectedId !== null) {
+        toggleHttpPin(httpHistorySelectedId);
+      }
+    });
+  }
+
+  const closeDetailBtn = document.getElementById('httpHistCloseDetail');
+  if (closeDetailBtn) {
+    closeDetailBtn.addEventListener('click', hideHttpHistoryDetail);
+  }
+}
+
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function loadHttpHistoryState() {
+  chrome.runtime.sendMessage({ action: 'getHttpHistoryState' }, (resp) => {
+    if (chrome.runtime.lastError) return;
+    httpHistoryCaptureActive = resp?.enabled || false;
+    const scope = resp?.scope || 'same-origin';
+
+    const toggle = document.getElementById('httpCaptureToggle');
+    if (toggle) toggle.checked = httpHistoryCaptureActive;
+
+    const scopeEl = document.getElementById('httpCaptureScope');
+    if (scopeEl) scopeEl.value = scope;
+
+    updateHttpCaptureUI();
+  });
+}
+
+function updateHttpCaptureUI() {
+  const fullCaptureToggle = document.getElementById('httpFullCaptureToggle');
+  if (fullCaptureToggle) {
+    fullCaptureToggle.disabled = !httpHistoryCaptureActive;
+    if (!httpHistoryCaptureActive) {
+      fullCaptureToggle.checked = false;
+      httpHistoryFullCaptureActive = false;
+    }
+  }
+}
+
+function loadHttpHistory(append) {
+  const filters = {
+    search: document.getElementById('httpHistSearch')?.value || '',
+    method: document.getElementById('httpHistMethodFilter')?.value || 'ALL',
+    statusGroup: document.getElementById('httpHistStatusFilter')?.value || '',
+    contentTypeFilter: document.getElementById('httpHistTypeFilter')?.value || '',
+    offset: httpHistoryOffset,
+    limit: 50
+  };
+
+  chrome.runtime.sendMessage({ action: 'getHttpHistory', filters }, (resp) => {
+    if (chrome.runtime.lastError) return;
+    const entries = resp?.entries || [];
+    httpHistoryTotal = resp?.total || 0;
+
+    if (append) {
+      httpHistoryEntries = httpHistoryEntries.concat(entries);
+    } else {
+      httpHistoryEntries = entries;
+    }
+
+    renderHttpHistoryTable();
+  });
+}
+
+function renderHttpHistoryTable() {
+  const tbody = document.getElementById('httpHistTableBody');
+  const emptyEl = document.getElementById('httpHistEmpty');
+  const paginationEl = document.getElementById('httpHistPagination');
+  const tableWrap = document.querySelector('.http-hist-table-wrap');
+
+  if (!tbody) return;
+
+  if (httpHistoryEntries.length === 0) {
+    tbody.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = '';
+    if (tableWrap) tableWrap.style.display = 'none';
+    if (paginationEl) paginationEl.style.display = 'none';
+    return;
+  }
+
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (tableWrap) tableWrap.style.display = '';
+
+  tbody.innerHTML = httpHistoryEntries.map(entry => {
+    const methodClass = 'http-hist-method-' + entry.method;
+    const statusClass = getStatusClass(entry.status);
+    const typeShort = getTypeShort(entry.contentType);
+    const sizeStr = formatBytes(entry.responseBodySize || 0);
+    const timeStr = entry.timing ? entry.timing + 'ms' : '-';
+    const selectedClass = entry.id === httpHistorySelectedId ? ' http-hist-row-selected' : '';
+    const authBadge = entry.hasCredentials ? '<span class="http-hist-auth-badge">AUTH</span>' : '';
+    const pinIcon = entry.pinned ? '<span class="http-hist-pin" title="Pinned">&#9733;</span>' : '';
+
+    return `<tr class="http-hist-row${selectedClass}" data-entry-id="${entry.id}">
+      <td class="http-hist-col-id">${entry.id}${pinIcon}</td>
+      <td class="http-hist-col-method"><span class="http-hist-method ${methodClass}">${escapeHtml(entry.method)}</span>${authBadge}</td>
+      <td class="http-hist-col-host" title="${escapeHtml(entry.domain)}">${escapeHtml(entry.domain)}</td>
+      <td class="http-hist-col-path" title="${escapeHtml(entry.path)}">${escapeHtml(entry.path)}</td>
+      <td class="http-hist-col-status"><span class="${statusClass}">${entry.status || '-'}</span></td>
+      <td class="http-hist-col-type">${escapeHtml(typeShort)}</td>
+      <td class="http-hist-col-size">${sizeStr}</td>
+      <td class="http-hist-col-time">${timeStr}</td>
+      <td class="http-hist-col-actions"><span class="http-hist-source-badge">${escapeHtml(entry.source)}</span></td>
+    </tr>`;
+  }).join('');
+
+  // Row click handlers
+  tbody.querySelectorAll('.http-hist-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const entryId = parseInt(row.dataset.entryId);
+      showHttpHistoryDetail(entryId);
+    });
+  });
+
+  // Update pagination
+  if (paginationEl) {
+    const countEl = document.getElementById('httpHistCount');
+    if (countEl) countEl.textContent = `Showing ${httpHistoryEntries.length} of ${httpHistoryTotal} entries`;
+    const loadMoreBtn = document.getElementById('httpHistLoadMore');
+    if (loadMoreBtn) {
+      loadMoreBtn.style.display = httpHistoryEntries.length < httpHistoryTotal ? '' : 'none';
+    }
+    paginationEl.style.display = '';
+  }
+}
+
+function getStatusClass(status) {
+  if (!status || status === 0) return 'http-hist-status-0';
+  if (status >= 200 && status < 300) return 'http-hist-status-2xx';
+  if (status >= 300 && status < 400) return 'http-hist-status-3xx';
+  if (status >= 400 && status < 500) return 'http-hist-status-4xx';
+  if (status >= 500) return 'http-hist-status-5xx';
+  return '';
+}
+
+function getTypeShort(contentType) {
+  if (!contentType) return '-';
+  const ct = contentType.toLowerCase();
+  if (ct.includes('json')) return 'JSON';
+  if (ct.includes('html')) return 'HTML';
+  if (ct.includes('xml')) return 'XML';
+  if (ct.includes('javascript') || ct.includes('ecmascript')) return 'JS';
+  if (ct.includes('css')) return 'CSS';
+  if (ct.includes('form')) return 'Form';
+  if (ct.includes('text')) return 'Text';
+  if (ct.includes('image')) return 'Img';
+  if (ct.includes('font')) return 'Font';
+  return ct.split('/').pop().split(';')[0].substring(0, 6);
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '-';
+  if (bytes < 1024) return bytes + 'B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'K';
+  return (bytes / (1024 * 1024)).toFixed(1) + 'M';
+}
+
+function showHttpHistoryDetail(entryId) {
+  httpHistorySelectedId = entryId;
+
+  // Highlight row
+  document.querySelectorAll('.http-hist-row').forEach(r => r.classList.remove('http-hist-row-selected'));
+  const row = document.querySelector(`.http-hist-row[data-entry-id="${entryId}"]`);
+  if (row) row.classList.add('http-hist-row-selected');
+
+  // Fetch full entry with bodies
+  chrome.runtime.sendMessage({ action: 'getHttpHistoryEntry', id: entryId }, (resp) => {
+    if (chrome.runtime.lastError || !resp?.entry) return;
+    const entry = resp.entry;
+
+    // Update Request pane
+    const reqSummary = document.getElementById('httpHistDetailReqSummary');
+    if (reqSummary) reqSummary.textContent = entry.method + ' ' + entry.url;
+
+    const credWarning = document.getElementById('httpHistDetailReqCredWarning');
+    if (credWarning) {
+      if (entry.hasCredentials) {
+        const credFieldsList = detectCredentialFieldNames(entry.requestBody);
+        credWarning.textContent = 'Credential fields detected: ' + (credFieldsList.length > 0 ? credFieldsList.join(', ') : 'possible credentials');
+        credWarning.style.display = '';
+      } else {
+        credWarning.style.display = 'none';
+      }
+    }
+
+    const reqHeaders = document.getElementById('httpHistDetailReqHeaders');
+    if (reqHeaders) reqHeaders.innerHTML = renderHeadersTable(entry.requestHeaders);
+
+    const reqBody = document.getElementById('httpHistDetailReqBody');
+    if (reqBody) reqBody.textContent = entry.requestBody || '(empty)';
+
+    // Update Response pane
+    const respSummary = document.getElementById('httpHistDetailRespSummary');
+    if (respSummary) {
+      respSummary.textContent = `${entry.status} ${entry.statusText} | ${entry.timing}ms | ${formatBytes(entry.responseBodySize)}`;
+      if (entry.truncated) respSummary.textContent += ' (truncated)';
+    }
+
+    const respHeaders = document.getElementById('httpHistDetailRespHeaders');
+    if (respHeaders) respHeaders.innerHTML = renderHeadersTable(entry.responseHeaders);
+
+    const respBody = document.getElementById('httpHistDetailRespBody');
+    if (respBody) {
+      let bodyText = entry.responseBody || '(empty)';
+      if (entry.bodiesPruned) bodyText = '[bodies pruned -- entry older than 24h]';
+      // Try to pretty-print JSON
+      if (entry.contentType && entry.contentType.includes('json') && bodyText !== '(empty)') {
+        try { bodyText = JSON.stringify(JSON.parse(bodyText), null, 2); } catch (e) { /* keep raw */ }
+      }
+      respBody.textContent = bodyText;
+    }
+
+    // Update pin button
+    const pinBtn = document.getElementById('httpHistPinBtn');
+    if (pinBtn) pinBtn.textContent = entry.pinned ? 'Unpin' : 'Pin';
+
+    // Show detail panel
+    const detail = document.getElementById('httpHistDetail');
+    if (detail) detail.style.display = '';
+
+    // Ensure Request tab is active
+    document.querySelectorAll('.http-hist-detail-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.http-hist-detail-pane').forEach(p => {
+      p.classList.remove('active');
+      p.style.display = 'none';
+    });
+    const reqTab = document.querySelector('.http-hist-detail-tab-btn[data-detail-tab="request"]');
+    if (reqTab) reqTab.classList.add('active');
+    const reqPane = document.getElementById('httpHistDetailRequest');
+    if (reqPane) { reqPane.classList.add('active'); reqPane.style.display = 'block'; }
+  });
+}
+
+function hideHttpHistoryDetail() {
+  const detail = document.getElementById('httpHistDetail');
+  if (detail) detail.style.display = 'none';
+  httpHistorySelectedId = null;
+  document.querySelectorAll('.http-hist-row').forEach(r => r.classList.remove('http-hist-row-selected'));
+}
+
+function renderHeadersTable(headers) {
+  if (!headers || Object.keys(headers).length === 0) return '<tr><td colspan="2" style="color: var(--text-tertiary)">(no headers)</td></tr>';
+  return Object.entries(headers).map(([key, value]) =>
+    `<tr><td>${escapeHtml(key)}</td><td>${escapeHtml(String(value))}</td></tr>`
+  ).join('');
+}
+
+function detectCredentialFieldNames(body) {
+  if (!body) return [];
+  const fields = [];
+  const credPatterns = ['password', 'passwd', 'pwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'auth'];
+  const lower = body.toLowerCase();
+  credPatterns.forEach(p => {
+    if (lower.includes(p)) fields.push(p);
+  });
+  return fields;
+}
+
+async function sendHttpHistoryToRepeater(entryId) {
+  chrome.runtime.sendMessage({ action: 'getHttpHistoryEntry', id: entryId }, (resp) => {
+    if (chrome.runtime.lastError || !resp?.entry) {
+      showMessage('Failed to load entry for Repeater', 'error');
+      return;
+    }
+    const entry = resp.entry;
+
+    // Switch to Repeater tab
+    document.querySelector('[data-tab="repeater"]').click();
+
+    setTimeout(function() {
+      // Set method
+      var methodEl = document.getElementById('repeater-method');
+      if (methodEl) methodEl.value = entry.method || 'GET';
+
+      // Set URL
+      var urlEl = document.getElementById('repeater-url');
+      if (urlEl) urlEl.value = entry.url;
+
+      // Clear existing headers and populate from captured data
+      var headersContainer = document.getElementById('repeater-headers-container');
+      if (headersContainer) headersContainer.textContent = '';
+
+      function addRow(key, value) {
+        if (typeof addRepeaterHeader === 'function') addRepeaterHeader();
+        var rows = headersContainer.querySelectorAll('.repeater-header-row');
+        var lastRow = rows[rows.length - 1];
+        if (lastRow) {
+          var k = lastRow.querySelector('.repeater-header-key');
+          var v = lastRow.querySelector('.repeater-header-value');
+          if (k) k.value = key;
+          if (v) v.value = value;
+        }
+      }
+
+      // Add all captured request headers
+      if (entry.requestHeaders && typeof entry.requestHeaders === 'object') {
+        Object.entries(entry.requestHeaders).forEach(([key, value]) => {
+          addRow(key, value);
+        });
+      }
+
+      // Set body
+      var bodyEl = document.getElementById('repeater-body');
+      if (bodyEl) bodyEl.value = entry.requestBody || '';
+
+      // Auto-detect body mode from Content-Type
+      if (entry.requestHeaders) {
+        const ct = (entry.requestHeaders['Content-Type'] || entry.requestHeaders['content-type'] || '').toLowerCase();
+        if (ct.includes('json')) {
+          const jsonBtn = document.getElementById('repeater-body-mode-json');
+          if (jsonBtn) jsonBtn.click();
+        } else if (ct.includes('form-data') || ct.includes('multipart')) {
+          const formBtn = document.getElementById('repeater-body-mode-form-data');
+          if (formBtn) formBtn.click();
+        }
+      }
+
+      // Show body section for non-GET methods
+      if (typeof toggleRepeaterBodyVisibility === 'function') {
+        toggleRepeaterBodyVisibility();
+      }
+
+      showMessage('Request loaded in Repeater with full headers and body', 'success');
+    }, 50);
+  });
+}
+
+function copyHttpHistoryAsCurl(entryId) {
+  chrome.runtime.sendMessage({ action: 'getHttpHistoryEntry', id: entryId }, (resp) => {
+    if (chrome.runtime.lastError || !resp?.entry) {
+      showMessage('Failed to load entry', 'error');
+      return;
+    }
+    const entry = resp.entry;
+    let curl = `curl -X ${entry.method} '${entry.url}'`;
+
+    if (entry.requestHeaders) {
+      Object.entries(entry.requestHeaders).forEach(([key, value]) => {
+        curl += ` \\\n  -H '${key}: ${value}'`;
+      });
+    }
+
+    if (entry.requestBody && ['POST', 'PUT', 'PATCH'].includes(entry.method)) {
+      // Escape single quotes in body
+      const escapedBody = entry.requestBody.replace(/'/g, "'\\''");
+      curl += ` \\\n  -d '${escapedBody}'`;
+    }
+
+    navigator.clipboard.writeText(curl).then(() => {
+      showMessage('cURL command copied to clipboard', 'success');
+    }).catch(() => {
+      showMessage('Failed to copy to clipboard', 'error');
+    });
+  });
+}
+
+function toggleHttpPin(entryId) {
+  // Find current state
+  const entry = httpHistoryEntries.find(e => e.id === entryId);
+  const newPinned = !(entry?.pinned || false);
+
+  chrome.runtime.sendMessage({
+    action: 'toggleHttpHistoryPin',
+    id: entryId,
+    pinned: newPinned
+  }, (resp) => {
+    if (resp?.success) {
+      if (entry) entry.pinned = newPinned;
+      renderHttpHistoryTable();
+      const pinBtn = document.getElementById('httpHistPinBtn');
+      if (pinBtn) pinBtn.textContent = newPinned ? 'Unpin' : 'Pin';
+      showMessage(newPinned ? 'Entry pinned (exempt from eviction)' : 'Entry unpinned', 'success');
+    }
+  });
+}
+
+function exportHttpHistory() {
+  if (httpHistoryEntries.length === 0) {
+    showMessage('No entries to export', 'info');
+    return;
+  }
+
+  // Export all entries as JSON (slim -- without bodies, for size)
+  const data = JSON.stringify(httpHistoryEntries, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'origami-http-history-' + new Date().toISOString().split('T')[0] + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showMessage('HTTP History exported', 'success');
 }

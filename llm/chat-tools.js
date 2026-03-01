@@ -415,6 +415,45 @@ class ChatTools {
           return 'Risk assessment failed: ' + e.message;
         }
       }
+    },
+
+    send_http_request: {
+      name: 'send_http_request',
+      description: 'Send an HTTP request to a target URL and return the response. Use for verifying vulnerabilities, probing endpoints, or testing SQL injection payloads interactively.',
+      params: [
+        { name: 'url', type: 'string', description: 'Full target URL including query string' }
+      ],
+      execute: async function(params, context) {
+        const url = params.url;
+        if (!url) return 'Error: url parameter is required.';
+        try { new URL(url); } catch (e) { return 'Error: invalid URL.'; }
+        return new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            action: 'sqliRequest',
+            url: url,
+            method: (params.method || 'GET').toUpperCase(),
+            headers: params.headers || {},
+            body: params.body || '',
+            timeout: 10000
+          }, (resp) => {
+            if (chrome.runtime.lastError) {
+              resolve('Error: ' + chrome.runtime.lastError.message);
+              return;
+            }
+            if (!resp) { resolve('Error: no response from background'); return; }
+            if (resp.error) { resolve('Error: ' + resp.error); return; }
+            const body = resp.body || '';
+            const limit = 8000;
+            const truncNote = (resp.truncated || body.length > limit) ? '\n[truncated at 8KB]' : '';
+            resolve(JSON.stringify({
+              status: resp.status,
+              statusText: resp.statusText,
+              timing_ms: resp.timing,
+              body: body.substring(0, limit) + truncNote
+            }, null, 2));
+          });
+        });
+      }
     }
   };
 
@@ -430,7 +469,8 @@ class ChatTools {
       const block = match[1].trim();
 
       const toolMatch = block.match(/^tool:\s*(.+)$/m);
-      const paramsMatch = block.match(/^params:\s*(.+)$/m);
+      // Capture everything after "params:" including multi-line JSON
+      const paramsMatch = block.match(/^params:\s*([\s\S]+)/m);
 
       if (toolMatch) {
         const toolName = toolMatch[1].trim();
@@ -439,7 +479,7 @@ class ChatTools {
           try {
             params = JSON.parse(paramsMatch[1].trim());
           } catch (e) {
-            console.error('Origami: Failed to parse tool params:', paramsMatch[1]);
+            console.error('Origami: Failed to parse tool params:', paramsMatch[1].trim());
           }
         }
         calls.push({ tool: toolName, params: params });
@@ -488,11 +528,33 @@ class ChatTools {
     try {
       const context = { tools: this };
       const result = await tool.execute(params, context);
-      return '[TOOL_RESULT]\ntool: ' + toolName + '\nresult: ' + result + '\n[/TOOL_RESULT]';
+      const errorNote = this._detectResponseError(result);
+      const prefix = errorNote ? errorNote + '\n' : '';
+      return '[TOOL_RESULT]\n' + prefix + 'tool: ' + toolName + '\nresult: ' + result + '\n[/TOOL_RESULT]';
     } catch (e) {
       console.error('Origami: Tool execution error for ' + toolName + ':', e);
       return '[TOOL_RESULT]\ntool: ' + toolName + '\nresult: Error executing tool: ' + e.message + '\n[/TOOL_RESULT]';
     }
+  }
+
+  // Detect database/server error patterns in a tool result string.
+  // Returns an annotation string if an error is detected, null otherwise.
+  _detectResponseError(resultStr) {
+    const patterns = [
+      /mysql_connect\(\)/i,
+      /mysql_fetch/i,
+      /Warning:\s/,
+      /You have an error in your SQL/i,
+      /syntax error.*SQL/i,
+      /Connection refused/i,
+      /website is out of order/i,
+      /\bORA-\d{4,}/,
+      /SQLSTATE\[/i
+    ];
+    for (const p of patterns) {
+      if (p.test(resultStr)) return '[ERROR_DETECTED: database_error]';
+    }
+    return null;
   }
 
   // -- Private helpers for data access --

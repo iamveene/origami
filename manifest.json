@@ -11,7 +11,8 @@
     "scripting",
     "webNavigation",
     "downloads",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -39,7 +40,14 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "js": ["interceptors/http-interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
       "js": [
+        "interceptors/http-interceptor-bridge.js",
         "constants.js",
         "scanner.js",
         "analyzers/header-analyzer.js",
@@ -73,4 +81,3 @@
   ],
   "web_accessible_resources": []
 }
-

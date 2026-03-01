@@ -26,6 +26,8 @@ class MCPBridge {
 
       if (this.enabled) {
         this.connect();
+        // Recreate keepalive alarm in case it was cleared by an extension reload
+        chrome.alarms.create('origami-mcp-keepalive', { periodInMinutes: 0.4 });
       }
     } catch (e) {
       console.error('Origami MCP: Init error:', e.message);

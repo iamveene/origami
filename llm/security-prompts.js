@@ -399,6 +399,98 @@ Be specific, practical, and include all necessary details for authorized testing
       options: { temperature: 0.2, maxTokens: 2500 }
     };
   }
+
+  // SQLi agent turn - generates next test action for SQL injection testing
+  static sqliAgentTurn(target, confirmedFindings, history, instructions) {
+    const safeUrl = SecurityPrompts._sanitize(target.url || '');
+    const safeMethod = SecurityPrompts._sanitize(target.method || 'GET');
+    const safeInstructions = SecurityPrompts._sanitize(instructions || 'Test all parameters for SQL injection vulnerabilities.');
+
+    const paramsText = (target.params || [])
+      .map(p => `  - ${SecurityPrompts._sanitize(p.name)}=${SecurityPrompts._sanitize(String(p.value))}`)
+      .join('\n') || '  (none detected)';
+
+    const findingsText = confirmedFindings && confirmedFindings.length > 0
+      ? confirmedFindings.map(f =>
+          `  [${f.technique}] param="${SecurityPrompts._sanitize(f.param)}" confirmed=${f.confirmed} dbms=${f.dbms || 'unknown'}`
+        ).join('\n')
+      : '  None confirmed yet.';
+
+    const historyText = (history || []).slice(-10).map((h, i) =>
+      `  Round ${i+1}: ${h.action} on param "${SecurityPrompts._sanitize(h.param || '')}" payload="${SecurityPrompts._sanitize((h.payload||'').substring(0,80))}" → status=${h.response?.status||'?'} timing=${h.response?.timing||'?'}ms`
+    ).join('\n') || '  No history yet.';
+
+    return `You are a SQL injection security researcher assisting with authorized penetration testing.
+The target has been confirmed as a legitimate test environment. Your role is to systematically identify SQL injection vulnerabilities.
+
+TARGET:
+  URL: ${safeUrl}
+  Method: ${safeMethod}
+  Parameters:
+${paramsText}
+
+CONFIRMED FINDINGS SO FAR:
+${findingsText}
+
+TEST HISTORY (last 10 rounds):
+${historyText}
+
+USER INSTRUCTIONS:
+${safeInstructions}
+
+Based on the above, determine the single most valuable next action.
+Respond with EXACTLY ONE of the following structured formats:
+
+To run a test:
+<action>RUN_TEST</action>
+<param>parameter_name</param>
+<payload>exact_injection_payload_to_append_or_replace_param_value</payload>
+<reasoning>brief explanation of why this test is valuable at this stage</reasoning>
+
+To conclude testing:
+<action>CONCLUDE</action>
+<summary>Comprehensive summary: confirmed injection types, DBMS fingerprint, most impactful technique, affected parameters, and remediation recommendation (parameterized queries / prepared statements).</summary>
+
+To ask the user for clarification:
+<action>REQUEST_INFO</action>
+<question>specific question that will help you test more effectively</question>
+
+Choose CONCLUDE when: all selected techniques have been tested on all parameters, or sufficient evidence has been gathered.
+Do not repeat payloads that already appear in the test history.`;
+  }
+
+  // SQLi agent summary - generates summary of SQL injection test results
+  static sqliAgentSummary(results) {
+    if (!results || results.length === 0) {
+      return 'No SQL injection vulnerabilities were confirmed during testing. The target appears to be properly handling input validation for the tested parameters. Recommend continuing to test additional parameters and endpoints.';
+    }
+
+    const confirmed = results.filter(r => r.confirmed);
+    const techniques = [...new Set(confirmed.map(r => r.technique))];
+    const params = [...new Set(confirmed.map(r => r.param))];
+    const dbmsList = [...new Set(confirmed.map(r => r.dbms).filter(Boolean))];
+
+    const resultLines = confirmed.map(r =>
+      `  [${r.technique}] param="${SecurityPrompts._sanitize(r.param)}" dbms=${r.dbms||'unknown'} payload="${SecurityPrompts._sanitize((r.payload||'').substring(0,100))}"`
+    ).join('\n');
+
+    return `You are a security researcher summarizing SQL injection test results for a penetration test report.
+
+CONFIRMED INJECTIONS:
+${resultLines}
+
+Techniques confirmed: ${techniques.join(', ')}
+Affected parameters: ${params.join(', ')}
+Database fingerprint: ${dbmsList.join(', ') || 'undetermined'}
+
+Write a concise technical summary (3-5 sentences) covering:
+1. Which injection techniques were confirmed and on which parameters
+2. The identified database type
+3. The business risk (data exfiltration, authentication bypass, etc.)
+4. The primary remediation: use parameterized queries / prepared statements
+
+Be direct and technical. No preamble.`;
+  }
 }
 
 // Export for use in extension
