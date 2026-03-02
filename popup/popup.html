@@ -12,7 +12,7 @@
     <header class="header">
       <div class="header-title">
         <div class="header-brand">
-          <div class="kanji-badge">開</div>
+          <div id="kanjiBadge" class="kanji-badge" title="Open in full page mode">開</div>
           <div class="brand-text">
             <div class="brand-name-row">
               <h1>Origami</h1>
@@ -59,6 +59,16 @@
       <div class="score-breakdown" id="scoreBreakdown">
         <!-- Filled dynamically -->
       </div>
+    </div>
+
+    <!-- Target Override Bar (visible in full-page mode only) -->
+    <div id="targetBar" class="target-bar">
+      <span class="target-bar-label">TARGET</span>
+      <div class="target-bar-display" id="targetBarDisplay">
+        <span id="targetBarUrl" class="target-bar-url">No target selected</span>
+      </div>
+      <button id="targetPickerBtn" class="btn btn-sm" title="Select target tab">Pick Tab</button>
+      <button id="targetClearBtn" class="btn btn-sm btn-ghost" title="Clear override" style="display:none">Clear</button>
     </div>
 
     <!-- Tab Navigation -->

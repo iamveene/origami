@@ -12,9 +12,138 @@ let currentInventory = null;
 let errorLog = [];  // Global error log
 let securityResultsLoaded = false;  // Track if security results have been loaded/attempted
 
+// Target override state (full-page mode tab targeting)
+let _overrideTabId = null;
+let _overrideTabUrl = null;
+let _isFullPageMode = false;
+
+async function getTargetTab() {
+  if (_overrideTabId !== null) {
+    try {
+      const tab = await chrome.tabs.get(_overrideTabId);
+      _overrideTabUrl = tab.url;
+      return tab;
+    } catch (e) {
+      clearTargetOverride();
+    }
+  }
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab || null;
+}
+
+function getTargetTabCb(callback) {
+  getTargetTab().then(tab => callback(tab ? [tab] : [])).catch(() => callback([]));
+}
+
+function setTargetOverride(tabId, tabUrl) {
+  _overrideTabId = tabId;
+  _overrideTabUrl = tabUrl;
+  chrome.storage.session.set({ targetOverride: { tabId, tabUrl } });
+  updateTargetOverrideUI();
+}
+
+function clearTargetOverride() {
+  _overrideTabId = null;
+  _overrideTabUrl = null;
+  chrome.storage.session.remove('targetOverride');
+  updateTargetOverrideUI();
+}
+
+function updateTargetOverrideUI() {
+  const urlEl = document.getElementById('targetBarUrl');
+  const clearBtn = document.getElementById('targetClearBtn');
+  if (!urlEl) return;
+  if (_overrideTabId !== null && _overrideTabUrl) {
+    try {
+      urlEl.textContent = new URL(_overrideTabUrl).hostname;
+    } catch (e) {
+      urlEl.textContent = _overrideTabUrl;
+    }
+    urlEl.classList.add('active');
+    if (clearBtn) clearBtn.style.display = '';
+  } else {
+    urlEl.textContent = 'No target selected';
+    urlEl.classList.remove('active');
+    if (clearBtn) clearBtn.style.display = 'none';
+  }
+}
+
+function showTabPicker() {
+  chrome.tabs.query({}, (allTabs) => {
+    const httpTabs = allTabs.filter(t => t.url && (t.url.startsWith('http://') || t.url.startsWith('https://')));
+    let html = '<div class="tab-picker-list">';
+    if (httpTabs.length === 0) {
+      html += '<div style="padding: 16px; color: var(--text-tertiary);">No web pages open</div>';
+    } else {
+      httpTabs.forEach(t => {
+        const isCurrent = t.id === _overrideTabId;
+        let hostname = '';
+        try { hostname = new URL(t.url).hostname; } catch(e) {}
+        html += `<div class="tab-picker-item${isCurrent ? ' current' : ''}" data-tab-id="${t.id}" data-tab-url="${escapeHtml(t.url)}">
+          <div style="flex:1;min-width:0">
+            <div class="tab-picker-title">${escapeHtml(t.title || 'Untitled')}</div>
+            <div class="tab-picker-url">${escapeHtml(hostname)}</div>
+          </div>
+        </div>`;
+      });
+    }
+    html += '</div>';
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `<div class="modal-content" style="max-height:400px">
+      <div class="modal-header"><h3>Select Target Tab</h3>
+        <button class="modal-close" title="Close">&times;</button>
+      </div>
+      <div class="modal-body">${html}</div>
+    </div>`;
+    document.body.appendChild(modal);
+
+    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    modal.querySelectorAll('.tab-picker-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const tabId = parseInt(item.dataset.tabId, 10);
+        const tabUrl = item.dataset.tabUrl;
+        setTargetOverride(tabId, tabUrl);
+        modal.remove();
+        reloadAllDataForTarget();
+      });
+    });
+  });
+}
+
+function reloadAllDataForTarget() {
+  currentFindings = [];
+  securityResults = null;
+  currentInventory = null;
+  securityResultsLoaded = false;
+
+  const findingsContainer = document.getElementById('findingsList');
+  if (findingsContainer) findingsContainer.innerHTML = '';
+  const securityContainer = document.getElementById('securityContent');
+  if (securityContainer) securityContainer.innerHTML = '';
+  const inventoryContainer = document.getElementById('inventoryContent');
+  if (inventoryContainer) inventoryContainer.innerHTML = '';
+
+  const scoreDashboard = document.getElementById('scoreDashboard');
+  if (scoreDashboard) scoreDashboard.style.display = 'none';
+
+  loadCurrentFindings().catch(e => console.error('reload findings:', e));
+  loadInventory().catch(e => console.error('reload inventory:', e));
+
+  getTargetTab().then(tab => {
+    if (tab) loadPhase2DataForTab(tab.id);
+  });
+
+  // Reset AI Partner if domain changed
+  if (typeof chatManager !== 'undefined') chatManager = null;
+}
+
 // Feature state persistence helpers (domain-keyed via chrome.storage.local)
 function saveFeatureState(featureKey, data) {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]?.url) return;
     let domain;
     try { domain = new URL(tabs[0].url).hostname; } catch (e) { return; }
@@ -24,7 +153,7 @@ function saveFeatureState(featureKey, data) {
 }
 
 function loadFeatureState(featureKey, callback) {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]?.url) { callback(null); return; }
     let domain;
     try { domain = new URL(tabs[0].url).hostname; } catch (e) { callback(null); return; }
@@ -166,6 +295,68 @@ window.addEventListener('unhandledrejection', (event) => {
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', async () => {
+  // Full-page mode detection: chrome.tabs.getCurrent() returns undefined in
+  // popup overlays (not a tab) but returns the tab object in full-page mode
+  const selfTab = await chrome.tabs.getCurrent();
+  _isFullPageMode = !!selfTab;
+
+  // Restore override from session storage
+  try {
+    const session = await chrome.storage.session.get('targetOverride');
+    if (session.targetOverride?.tabId) {
+      try {
+        await chrome.tabs.get(session.targetOverride.tabId);
+        _overrideTabId = session.targetOverride.tabId;
+        _overrideTabUrl = session.targetOverride.tabUrl;
+      } catch (e) {
+        chrome.storage.session.remove('targetOverride');
+      }
+    }
+  } catch (e) { /* session storage unavailable */ }
+
+  // URL parameter override (used by Playwright tests and expand-to-fullpage)
+  const params = new URLSearchParams(window.location.search);
+  const targetParam = params.get('target');
+  if (targetParam) {
+    const tabId = parseInt(targetParam, 10);
+    if (!isNaN(tabId)) {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        setTargetOverride(tabId, tab.url);
+      } catch (e) { /* tab doesn't exist, fall through */ }
+    }
+  }
+
+  if (_isFullPageMode) document.body.classList.add('full-page-mode');
+  updateTargetOverrideUI();
+
+  // Target bar event listeners
+  document.getElementById('targetPickerBtn')?.addEventListener('click', showTabPicker);
+  document.getElementById('targetClearBtn')?.addEventListener('click', () => {
+    clearTargetOverride();
+    reloadAllDataForTarget();
+  });
+
+  // Kanji badge opens full-page mode (only in popup overlay, hidden in full-page)
+  document.getElementById('kanjiBadge')?.addEventListener('click', async () => {
+    if (_isFullPageMode) return;
+    // In popup overlay mode, the active tab IS the intended target
+    const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const targetParam = currentTab?.id ? `?target=${currentTab.id}` : '';
+    chrome.tabs.create({
+      url: chrome.runtime.getURL(`popup/popup.html${targetParam}`)
+    });
+    window.close();
+  });
+
+  // Tab lifecycle: clear override if target tab is closed
+  chrome.tabs.onRemoved.addListener((closedTabId) => {
+    if (_overrideTabId === closedTabId) {
+      clearTargetOverride();
+      reloadAllDataForTarget();
+    }
+  });
+
   try { await loadSettings(); } catch(e) { console.error('loadSettings failed:', e); }
   try { await loadWhitelist(); } catch(e) { console.error('loadWhitelist failed:', e); }
   try { await loadHistory(); } catch(e) { console.error('loadHistory failed:', e); }
@@ -362,32 +553,32 @@ function setupSecuritySubTabs() {
 
       // Load data for session and auth-flows sub-tabs on click
       if (tabName === 'session') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) loadSessionState(tab.id);
         });
       }
       if (tabName === 'auth-flows') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) loadAuthFlows(tab.id);
         });
       }
       if (tabName === 'crypto') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) loadCryptoResults(tab.id);
         });
       }
       if (tabName === 'cloud-storage') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) loadCloudStorageResults(tab.id);
         });
       }
       if (tabName === 'exfiltration') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) loadExfiltrationResults(tab.id);
         });
       }
       if (tabName === 'websocket') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) loadWebSocketResults(tab.id);
         });
       }
@@ -2092,7 +2283,7 @@ function getSummary(results) {
 // Load current page findings
 async function loadCurrentFindings() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     
     // Load secret findings
     chrome.runtime.sendMessage(
@@ -2262,7 +2453,7 @@ async function tryRestoreFromDomainCache(tab, dataType) {
 
 async function handleSecurityAnalysisReady(readyTabId) {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     if (tab.id !== readyTabId) return;
 
     chrome.runtime.sendMessage(
@@ -2306,7 +2497,7 @@ async function scanCurrentPage() {
   btn.disabled = true;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
 
     // Step 1: Scan for secrets
     chrome.tabs.sendMessage(
@@ -2900,7 +3091,7 @@ function displayFindings(findings) {
   const bulkDomainBtn = container.querySelector('.bulk-whitelist-domain-btn');
   if (bulkDomainBtn) {
     bulkDomainBtn.addEventListener('click', async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getTargetTab();
       if (!tab?.url) return;
       try {
         const domain = new URL(tab.url).hostname;
@@ -3188,7 +3379,7 @@ function exportAsCSV() {
 async function clearFindings() {
   if (!confirm('Clear all findings for this page?')) return;
   
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await getTargetTab();
   chrome.runtime.sendMessage({ action: 'clearTabFindings', tabId: tab.id }, () => {
     currentFindings = [];
     displayFindings([]);
@@ -4259,7 +4450,7 @@ async function testGoogleAPIKey(apiKey) {
 
     if (results && results.length > 0) {
       // Store results in background for caching (include tabId for risk upgrade)
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      getTargetTabCb((tabs) => {
         if (tabs[0]) {
           chrome.runtime.sendMessage({
             action: 'storeAPIValidationResults',
@@ -4609,10 +4800,14 @@ async function executeLLMAnalysis() {
     // Execute LLM analysis
     console.log('Origami: Executing LLM analysis with prompt type:', promptType);
     
+    const systemPrompt = (promptType === 'exploit')
+      ? SecurityPrompts.exploiterSystemPrompt()
+      : SecurityPrompts.advisorSystemPrompt();
+
     const result = await llmManager.analyze(
       promptData.prompt,
       promptData.context,
-      promptData.options
+      { ...promptData.options, systemPrompt }
     );
     
     console.log('Origami: LLM analysis complete:', result);
@@ -4733,7 +4928,7 @@ async function generateEnhancedReport() {
   
   try {
     // Get current tab for URL
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     
     // Gather all data
     updateReportProgress(10, 'Collecting findings...');
@@ -4996,8 +5191,8 @@ async function initializeDefaultPatterns() {
     { id: 'google-oauth2-refresh', name: 'Google OAuth2 Refresh Token', regex: '1//[0-9A-Za-z_-]{43,}', risk: 'HIGH', enabled: true, builtin: true, category: 'oauth2', description: 'Google OAuth2 refresh token (long-lived, can generate new access tokens)' },
     { id: 'google-oauth2-secret', name: 'Google OAuth2 Client Secret', regex: 'GOCSPX-[0-9A-Za-z_-]{28}', risk: 'HIGH', enabled: true, builtin: true, category: 'oauth2', description: 'Google OAuth2 client secret (app credentials)' },
     { id: 'gcp-service-account', name: 'GCP Service Account Key', regex: '"type"\\s*:\\s*"service_account"', risk: 'MEDIUM', enabled: true, builtin: true, category: 'cloud', description: 'GCP service account JSON key marker (indicates key file present; actual private key is the secret)' },
-    // UUID/GUID as Client Secret (OAuth2, API secrets, etc.)
-    { id: 'client-secret-uuid', name: 'Client Secret (UUID)', regex: '(client[_-]?secret|clientSecret|CLIENT_SECRET|api[_-]?secret|apiSecret|secret[_-]?key|secretKey)["\']?\\s*[:=]\\s*["\'][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}["\']', risk: 'MEDIUM', enabled: true, builtin: true, category: 'oauth2', description: 'Client secret in UUID/GUID format (OAuth2, Flexiti, etc.)' },
+    // UUID/GUID as Client Credential (OAuth2, API secrets, SDK credentials, etc.)
+    { id: 'client-secret-uuid', name: 'Client Credential (UUID)', regex: '(client[_-]?(?:secret|id)|clientSecret|clientID|CLIENT_SECRET|CLIENT_ID|api[_-]?(?:secret|key)|apiSecret|apiKey|secret[_-]?key|secretKey)["\']?\\s*[:=]\\s*["\'][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}["\']', risk: 'MEDIUM', enabled: true, builtin: true, category: 'oauth2', description: 'Client credential in UUID/GUID format (OAuth2, SDK client IDs, etc.)' },
 
     // MEDIUM (downgraded from HIGH)
     { id: 'google-api-key', name: 'Google Cloud API Key', regex: 'AIza[0-9A-Za-z-_]{35}', risk: 'MEDIUM', enabled: true, builtin: true, category: 'cloud', description: 'Google Cloud Platform API key (exposure risks billing abuse and quota exhaustion; validate to check for overprivileged access)' },
@@ -5005,10 +5200,10 @@ async function initializeDefaultPatterns() {
     { id: 'google-oauth2-client-id', name: 'Google OAuth2 Client ID', regex: '[0-9]{8,21}-[a-z0-9]{32}\\.apps\\.googleusercontent\\.com', risk: 'MEDIUM', enabled: false, builtin: true, category: 'oauth2', description: 'Google OAuth2 client ID (public per RFC 6749 -- disabled by default, enable for reconnaissance)' },
     { id: 'quoted-base64', name: 'Quoted Base64', regex: '["\'](?=.*[A-Z])(?=.*[a-z])(?=.*[0-9+/])[A-Za-z0-9+/]{50,}={0,2}["\']', risk: 'MEDIUM', enabled: false, builtin: true, category: 'generic', description: 'Quoted base64 strings (disabled by default - false positives on minified CDN files, data URIs, build artifacts)' },
     { id: 'database-url', name: 'Database URL', regex: '(mongodb|mysql|postgresql|postgres|redis|amqp|mssql)://[^:]+:[^@]+@[^\\s]+', risk: 'MEDIUM', enabled: true, builtin: true, category: 'database', description: 'Database connection URL with credentials' },
-    { id: 'api-key-pattern', name: 'API Key Pattern', regex: '(api[_-]?key|apikey|api[_-]?secret)["\']?\\s*[:=]\\s*["\'][a-zA-Z0-9_-]{16,}["\']', risk: 'MEDIUM', enabled: true, builtin: true, category: 'api', description: 'Generic API key assignment pattern' },
+    { id: 'api-key-pattern', name: 'API Key Pattern', regex: '(api[_-]?key|apiKey|apikey|api[_-]?secret|apiSecret)["\']?\\s*[:=]\\s*["\'][a-zA-Z0-9_-]{16,}["\']', risk: 'MEDIUM', enabled: true, builtin: true, category: 'api', description: 'Generic API key assignment pattern' },
 
     // MEDIUM
-    { id: 'access-token', name: 'Access Token', regex: 'access[_-]?token["\']?\\s*[:=]\\s*["\'][a-zA-Z0-9_-]{20,}["\']', risk: 'MEDIUM', enabled: true, builtin: true, category: 'generic', description: 'Access token assignment' },
+    { id: 'access-token', name: 'Access Token', regex: '(access[_-]?token|accessToken)["\']?\\s*[:=]\\s*["\'][a-zA-Z0-9_-]{20,}["\']', risk: 'MEDIUM', enabled: true, builtin: true, category: 'generic', description: 'Access token assignment' },
 
     // ===================================================================
     // New patterns sourced from Lovable.dev secret scanner
@@ -5714,7 +5909,7 @@ async function generateReportFromTab() {
   updateReportMainProgress(0, 'Preparing report data...');
   
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     
     // Filter data based on content selections
     updateReportMainProgress(10, 'Collecting findings...');
@@ -6360,7 +6555,7 @@ async function performInlineAIAssessment(index, type, refresh = false, category 
     // In bulk mode, skip per-finding storage persistence and DOM rendering (caller handles refresh)
     if (bulkMode) {
       try {
-        const [bmTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const bmTab = await getTargetTab();
         const bmDomain = new URL(bmTab.url).hostname;
         const bmFp = origamiFindingFingerprint(finding, type === 'secret' ? 'secrets' : (category || type));
         chrome.runtime.sendMessage({
@@ -6377,7 +6572,7 @@ async function performInlineAIAssessment(index, type, refresh = false, category 
     }
 
     // Persist updated findings to storage
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
 
     // Store a reference to the finding object so we can find it after re-sort
     const assessedFinding = finding;
@@ -7058,7 +7253,7 @@ async function performBulkAIAssessment() {
   let chainsToAssess = [];
   if (aiConfig.types.correlationChains) {
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const activeTab = await getTargetTab();
       const chainsResp = await new Promise(r => chrome.runtime.sendMessage({ action: 'getCorrelationChains', tabId: activeTab.id }, r));
       if (chainsResp?.chains && Array.isArray(chainsResp.chains)) {
         chainsToAssess = chainsResp.chains.filter((chain, idx) => {
@@ -7223,7 +7418,7 @@ async function performBulkAIAssessment() {
     await runPool(assessmentTasks, concurrencyLimit);
 
     // Persist and refresh UI once after all bulk assessments
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     if (secretsToAssess.length > 0) {
       await chrome.runtime.sendMessage({ action: 'updateTabFindings', tabId: tab.id, findings: currentFindings });
       displayFindings(currentFindings);
@@ -7311,7 +7506,7 @@ Provide:
 // Handle severity override
 async function handleSeverityOverride(index, newSeverity, type = 'secret', category = null) {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
 
     if (type === 'secret') {
       // Update secret finding
@@ -7706,7 +7901,7 @@ function saveGoogleAPISettings() {
 
 // Load available Google API keys into dropdown
 async function loadAvailableGoogleAPIKeys() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await getTargetTab();
   if (!tab) return;
 
   chrome.runtime.sendMessage({ action: 'getTabFindings', tabId: tab.id }, response => {
@@ -8074,7 +8269,7 @@ let flatViewSortAsc = true;
 
 async function loadInventory() {
   return new Promise((resolve) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    getTargetTabCb((tabs) => {
       if (!tabs[0]) { resolve(); return; }
       const tab = tabs[0];
       chrome.runtime.sendMessage(
@@ -8110,7 +8305,7 @@ async function loadInventory() {
 }
 
 async function refreshInventory() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tab = await getTargetTab();
   if (!tab) return;
 
   const btn = document.getElementById('refreshInventoryBtn');
@@ -9237,7 +9432,7 @@ let bfResults = [];
 function initBruteForceTarget() {
   const targetInput = document.getElementById('bfTargetUrl');
   if (targetInput && !targetInput.value) {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    getTargetTabCb((tabs) => {
       if (tabs[0] && tabs[0].url) {
         try {
           const origin = new URL(tabs[0].url).origin;
@@ -9249,7 +9444,7 @@ function initBruteForceTarget() {
 }
 
 function loadBruteForceResults() {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]) return;
     const tab = tabs[0];
     let domain;
@@ -9368,7 +9563,7 @@ function clearBruteForceResults() {
   if (resultsCount) resultsCount.textContent = '0';
   if (progressContainer) progressContainer.style.display = 'none';
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]) return;
     let domain;
     try { domain = new URL(tabs[0].url).hostname; } catch (e) {}
@@ -9468,7 +9663,7 @@ function startBruteForceScan() {
   updateBruteForceProgress(0, 0);
 
   // Send message to background to start scan (include tabId for persistence)
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     const tabId = tabs[0]?.id;
     chrome.runtime.sendMessage({
       action: 'startBruteForceScan',
@@ -9608,7 +9803,7 @@ function addBruteForceToInventory(results) {
     return;
   }
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]) return;
     const tab = tabs[0];
     let domain;
@@ -9686,7 +9881,7 @@ let activeCrawlerStatusCodes = [200, 301, 302, 403];
 function initCrawlerTarget() {
   const targetInput = document.getElementById('crawlerTargetUrl');
   if (targetInput && !targetInput.value) {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    getTargetTabCb((tabs) => {
       if (tabs[0] && tabs[0].url) {
         try {
           targetInput.value = tabs[0].url;
@@ -9697,7 +9892,7 @@ function initCrawlerTarget() {
 }
 
 function loadCrawlerResults() {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]) return;
     const tab = tabs[0];
     let domain;
@@ -9814,7 +10009,7 @@ function clearCrawlerResults() {
   if (resultsCount) resultsCount.textContent = '0';
   if (progressContainer) progressContainer.style.display = 'none';
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]) return;
     let domain;
     try { domain = new URL(tabs[0].url).hostname; } catch (e) {}
@@ -9893,7 +10088,7 @@ function startCrawl() {
 
   updateCrawlerProgress(0, 0);
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     const tabId = tabs[0]?.id;
     chrome.runtime.sendMessage({
       action: 'startCrawl',
@@ -10043,7 +10238,7 @@ function addCrawlerToInventory(results) {
     return;
   }
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]) return;
     const tab = tabs[0];
     let domain;
@@ -10113,7 +10308,7 @@ function handleCrawlerMessage(message) {
 async function loadCorrelationChains(tabId) {
   if (!tabId) {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getTargetTab();
       tabId = tab.id;
     } catch (e) {
       console.error('Origami: Could not get active tab for chains:', e);
@@ -10248,7 +10443,7 @@ function renderCorrelationChains(chains) {
 async function loadSessionState(tabId) {
   if (!tabId) {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getTargetTab();
       tabId = tab.id;
     } catch (e) {
       console.error('Origami: Could not get active tab for session state:', e);
@@ -10453,7 +10648,7 @@ function renderSessionState(sessionState) {
 async function loadAuthFlows(tabId) {
   if (!tabId) {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getTargetTab();
       tabId = tab.id;
     } catch (e) {
       console.error('Origami: Could not get active tab for auth flows:', e);
@@ -10649,7 +10844,7 @@ function renderAuthFlows(flows) {
 async function loadGraphQLResults(tabId) {
   if (!tabId) {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getTargetTab();
       tabId = tab.id;
     } catch (e) {
       console.error('Origami: Could not get active tab for GraphQL:', e);
@@ -10803,7 +10998,7 @@ function setupGraphQLQueryExecution() {
     const endpointsEl = document.getElementById('graphqlEndpoints');
     // Try to get the endpoint from stored GraphQL results
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = await getTargetTab();
       const response = await new Promise((resolve) => {
         chrome.runtime.sendMessage({ action: 'getGraphQLResults', tabId: tab.id }, resolve);
       });
@@ -10869,7 +11064,7 @@ function setupGraphQLQueryExecution() {
 
 async function loadBaselineInfo() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     const url = new URL(tab.url);
     const domain = url.hostname;
 
@@ -10909,7 +11104,7 @@ function setupEvolutionTracker() {
         saveBtn.disabled = true;
         saveBtn.textContent = 'Saving...';
 
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tab = await getTargetTab();
         const url = new URL(tab.url);
         const domain = url.hostname;
 
@@ -10966,7 +11161,7 @@ function setupEvolutionTracker() {
         compareBtn.disabled = true;
         compareBtn.textContent = 'Comparing...';
 
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const tab = await getTargetTab();
         const url = new URL(tab.url);
         const domain = url.hostname;
 
@@ -11363,7 +11558,7 @@ async function analyzeWorkbenchChain() {
     if (window.ChainPredictor) {
       const predictor = new ChainPredictor();
       const prediction = await predictor.predict(chain, {
-        url: (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.url
+        url: (await getTargetTab())?.url
       });
 
       let html = '';
@@ -11646,7 +11841,7 @@ async function generatePoC() {
 
   try {
     // Gather context
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     const context = {
       url: tab.url,
       csp: null,
@@ -12251,7 +12446,7 @@ function dryRunTemplate(templateId) {
   if (parseError) parseError.style.display = 'none';
 
   // Send to content script via background for dry run
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  getTargetTabCb((tabs) => {
     if (!tabs[0]) {
       if (dryRunResults) {
         dryRunResults.style.display = 'block';
@@ -13037,8 +13232,8 @@ function setupIntentEngine() {
     evaluateBtn.textContent = 'Evaluating...';
 
     try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tabId = tabs[0]?.id;
+      const tab = await getTargetTab();
+      const tabId = tab?.id;
       if (!tabId) return;
 
       const allFindings = await new Promise(resolve => {
@@ -13179,7 +13374,7 @@ function setupCookieEditor() {
 
 async function loadCookieEditorCookies() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     if (!tab || !tab.url) {
       showMessage('No active tab', 'error');
       return;
@@ -13618,13 +13813,13 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     initializePhase2Features();
     // Load Phase 2-3 data for the current tab on popup open
-    chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+    getTargetTab().then((tab) => {
       if (tab) loadPhase2DataForTab(tab.id);
     });
   });
 } else {
   initializePhase2Features();
-  chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+  getTargetTab().then((tab) => {
     if (tab) loadPhase2DataForTab(tab.id);
   });
 }
@@ -13637,7 +13832,7 @@ const _phase2TabHook = () => {
     btn.addEventListener('click', () => {
       const tabName = btn.dataset.tab;
       if (tabName === 'attack-lab') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) {
             loadCorrelationChains(tab.id);
             populateWorkbenchFindings();
@@ -13646,7 +13841,7 @@ const _phase2TabHook = () => {
         });
       }
       if (tabName === 'graphql') {
-        chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+        getTargetTab().then((tab) => {
           if (tab) loadGraphQLResults(tab.id);
         });
       }
@@ -13771,8 +13966,7 @@ async function openAIPartner() {
   if (minimized) minimized.style.display = 'none';
 
   console.log('AI Partner: querying active tab');
-  const tabs = await chrome.tabs.query({active: true, currentWindow: true});
-  const tab = tabs[0];
+  const tab = await getTargetTab();
   if (!tab) {
     appendChatError('No active tab found. Please open a web page first.');
     return;
@@ -14076,7 +14270,7 @@ async function showReportModal() {
   const urlDisplay = document.getElementById('reportTargetUrl');
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     reportModalCurrentUrl = tab ? tab.url : '';
   } catch (e) {
     reportModalCurrentUrl = '';
@@ -17281,7 +17475,10 @@ async function sqliAiLlmRequest(promptText) {
     }
     var manager = new LLMManager(llmSettings.provider, llmSettings.apiKey, llmSettings.endpoint);
     manager.setModel(llmSettings.model || 'claude-sonnet-4-6');
-    var result = await manager.analyze(promptText, null, { maxTokens: 600 });
+    var result = await manager.analyze(promptText, null, {
+      maxTokens: 600,
+      systemPrompt: SecurityPrompts.exploiterSystemPrompt()
+    });
     return { text: result.response };
   } catch(e) {
     return { error: e.message };
@@ -17440,7 +17637,7 @@ function setupHttpHistory() {
   if (fullCaptureToggle) {
     fullCaptureToggle.addEventListener('change', () => {
       if (fullCaptureToggle.checked) {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        getTargetTabCb((tabs) => {
           if (!tabs[0]) return;
           chrome.runtime.sendMessage({
             action: 'enableFullCapture',
@@ -17580,6 +17777,7 @@ function loadHttpHistoryState() {
   chrome.runtime.sendMessage({ action: 'getHttpHistoryState' }, (resp) => {
     if (chrome.runtime.lastError) return;
     httpHistoryCaptureActive = resp?.enabled || false;
+    httpHistoryFullCaptureActive = resp?.fullCapture || false;
     const scope = resp?.scope || 'same-origin';
 
     const toggle = document.getElementById('httpCaptureToggle');
@@ -17599,6 +17797,8 @@ function updateHttpCaptureUI() {
     if (!httpHistoryCaptureActive) {
       fullCaptureToggle.checked = false;
       httpHistoryFullCaptureActive = false;
+    } else {
+      fullCaptureToggle.checked = httpHistoryFullCaptureActive;
     }
   }
 }

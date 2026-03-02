@@ -592,7 +592,11 @@ function disableFullCapture(tabId) {
 // CDP event handler
 chrome.debugger.onEvent.addListener(async (source, method, params) => {
   if (source.tabId !== httpFullCaptureTabId) return;
-  if (!httpCaptureEnabled) return;
+  await httpCaptureInitPromise;
+  // Allow CDP events as long as the debugger is attached to this tab,
+  // regardless of the Tier 1 toggle (httpCaptureEnabled). The debugger
+  // being attached IS the user's intent to capture on this tab.
+  if (!httpCaptureEnabled && source.tabId !== httpFullCaptureTabId) return;
 
   const tabId = source.tabId;
 
@@ -770,11 +774,18 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   }
 });
 
-// Restore capture state from settings on startup
+// Restore capture state from settings on startup.
+// In MV3 the service worker can restart at any time; this Promise ensures
+// message handlers wait for the restore to complete before checking state.
+var _httpCaptureInitResolve;
+var httpCaptureInitPromise = new Promise(function(resolve) { _httpCaptureInitResolve = resolve; });
+
 chrome.storage.sync.get(['settings'], (data) => {
   const settings = data.settings || DEFAULT_SETTINGS;
   httpCaptureEnabled = !!(settings.httpHistory && settings.httpHistory.enabled);
   httpCaptureScope = (settings.httpHistory && settings.httpHistory.captureScope) || 'same-origin';
+  console.log('Origami: HTTP capture state restored, enabled=' + httpCaptureEnabled + ', scope=' + httpCaptureScope);
+  _httpCaptureInitResolve();
 });
 
 // ============================================================================
@@ -2862,19 +2873,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // HTTP History message handlers
   // ========================================================================
   } else if (request.action === 'httpHistoryEntry') {
-    if (!httpCaptureEnabled) return;
-    const entry = request.entry;
-    if (!entry || !entry.url) return;
-    entry.tabId = sender.tab?.id || 0;
-    entry.tier = 1;
-    addHttpHistoryEntry(entry).catch(e => {
-      console.error('Origami: Failed to store HTTP history entry:', e);
+    // Wait for capture state to be restored from storage (MV3 service worker may restart)
+    httpCaptureInitPromise.then(() => {
+      console.log('Origami: httpHistoryEntry received, captureEnabled=' + httpCaptureEnabled, 'url=' + (request.entry && request.entry.url));
+      if (!httpCaptureEnabled) {
+        console.warn('Origami: httpHistoryEntry DROPPED (capture disabled)');
+        return;
+      }
+      const entry = request.entry;
+      if (!entry || !entry.url) return;
+      entry.tabId = sender.tab?.id || 0;
+      entry.tier = 1;
+      addHttpHistoryEntry(entry).then(id => {
+        console.log('Origami: httpHistoryEntry stored, id=' + id);
+      }).catch(e => {
+        console.error('Origami: Failed to store HTTP history entry:', e);
+      });
     });
     return; // No response needed (fire-and-forget from content script)
 
   } else if (request.action === 'getHttpHistoryState') {
-    sendResponse({ enabled: httpCaptureEnabled, scope: httpCaptureScope });
-    return;
+    // Wait for init before responding so the popup gets the real state
+    httpCaptureInitPromise.then(() => {
+      console.log('Origami: getHttpHistoryState -> enabled=' + httpCaptureEnabled + ', scope=' + httpCaptureScope + ', fullCapture=' + !!httpFullCaptureTabId);
+      sendResponse({
+        enabled: httpCaptureEnabled,
+        scope: httpCaptureScope,
+        fullCapture: !!httpFullCaptureTabId,
+        fullCaptureTabId: httpFullCaptureTabId
+      });
+    });
+    return true; // Keep channel open for async sendResponse
 
   } else if (request.action === 'getHttpHistory') {
     (async () => {
@@ -2913,6 +2942,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.action === 'toggleHttpCapture') {
     httpCaptureEnabled = !!request.enabled;
     if (request.scope) httpCaptureScope = request.scope;
+    console.log('Origami: toggleHttpCapture enabled=' + httpCaptureEnabled + ', scope=' + httpCaptureScope);
 
     // Persist to settings
     chrome.storage.sync.get(['settings'], (data) => {
@@ -2928,13 +2958,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return;
 
   } else if (request.action === 'enableFullCapture') {
+    console.log('Origami: enableFullCapture tabId=' + request.tabId);
     (async () => {
       try {
         const tabId = request.tabId;
         if (!tabId) { sendResponse({ success: false, error: 'No tabId' }); return; }
         await enableFullCapture(tabId);
+        console.log('Origami: enableFullCapture SUCCESS, tabId=' + tabId);
         sendResponse({ success: true });
       } catch (e) {
+        console.error('Origami: enableFullCapture FAILED', e.message);
         sendResponse({ success: false, error: e.message });
       }
     })();

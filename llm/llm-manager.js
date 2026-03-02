@@ -64,18 +64,18 @@ class LLMManager {
 
   // Analyze code/findings with LLM
   async analyze(prompt, context, options = {}) {
-    const { temperature = 0.3, maxTokens = 1000 } = options;
+    const { temperature = 0.3, maxTokens = 1000, systemPrompt } = options;
 
     try {
       switch (this.provider) {
         case 'openai':
-          return await this.analyzeWithOpenAI(prompt, context, temperature, maxTokens);
+          return await this.analyzeWithOpenAI(prompt, context, temperature, maxTokens, systemPrompt);
         case 'anthropic':
-          return await this.analyzeWithAnthropic(prompt, context, temperature, maxTokens);
+          return await this.analyzeWithAnthropic(prompt, context, temperature, maxTokens, systemPrompt);
         case 'gemini':
-          return await this.analyzeWithGemini(prompt, context, temperature, maxTokens);
+          return await this.analyzeWithGemini(prompt, context, temperature, maxTokens, systemPrompt);
         case 'ollama':
-          return await this.analyzeWithOllama(prompt, context, temperature, maxTokens);
+          return await this.analyzeWithOllama(prompt, context, temperature, maxTokens, systemPrompt);
         default:
           throw new Error(`Unknown provider: ${this.provider}`);
       }
@@ -85,9 +85,10 @@ class LLMManager {
   }
 
   // OpenAI API
-  async analyzeWithOpenAI(prompt, context, temperature, maxTokens) {
+  async analyzeWithOpenAI(prompt, context, temperature, maxTokens, systemPrompt) {
     const model = this.model || 'gpt-4o';
     const endpoint = this.endpoint || 'https://api.openai.com/v1/chat/completions';
+    const sysMsg = systemPrompt || 'You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.';
 
     try {
       const data = await this.fetchViaBackground(endpoint, {
@@ -101,7 +102,7 @@ class LLMManager {
           messages: [
             {
               role: 'system',
-              content: 'You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.'
+              content: sysMsg
             },
             {
               role: 'user',
@@ -125,9 +126,10 @@ class LLMManager {
   }
 
   // Anthropic Claude API
-  async analyzeWithAnthropic(prompt, context, temperature, maxTokens) {
+  async analyzeWithAnthropic(prompt, context, temperature, maxTokens, systemPrompt) {
     const model = this.model || 'claude-sonnet-4-6';
     const endpoint = this.endpoint || 'https://api.anthropic.com/v1/messages';
+    const sysMsg = systemPrompt || 'You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.';
 
     try {
       const data = await this.fetchViaBackground(endpoint, {
@@ -142,7 +144,7 @@ class LLMManager {
           model,
           max_tokens: maxTokens,
           temperature,
-          system: 'You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.',
+          system: sysMsg,
           messages: [
             {
               role: 'user',
@@ -164,9 +166,10 @@ class LLMManager {
   }
 
   // Google Gemini API
-  async analyzeWithGemini(prompt, context, temperature, maxTokens) {
+  async analyzeWithGemini(prompt, context, temperature, maxTokens, systemPrompt) {
     const model = this.model || 'gemini-2.5-flash-lite';
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    const sysMsg = systemPrompt || 'You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.';
 
     try {
       const data = await this.fetchViaBackground(endpoint, {
@@ -177,7 +180,7 @@ class LLMManager {
         },
         body: JSON.stringify({
           systemInstruction: {
-            parts: [{ text: 'You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.' }]
+            parts: [{ text: sysMsg }]
           },
           contents: [{
             parts: [{
@@ -251,7 +254,7 @@ class LLMManager {
   }
 
   // Ollama (local)
-  async analyzeWithOllama(prompt, context, temperature, maxTokens) {
+  async analyzeWithOllama(prompt, context, temperature, maxTokens, systemPrompt) {
     const model = this.model || 'llama3.1:8b';
     // Ensure endpoint has /api/generate path - restrict to localhost only
     let endpoint = this.endpoint || 'http://127.0.0.1:11434';
@@ -276,7 +279,7 @@ class LLMManager {
         },
         body: JSON.stringify({
           model,
-          prompt: `You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.\n\n${prompt}\n\nContext:\n${this.truncateContext(context, 3000)}`,
+          prompt: `${systemPrompt || 'You are a cybersecurity expert analyzing code for vulnerabilities and security issues. Provide clear, actionable insights.'}\n\n${prompt}\n\nContext:\n${this.truncateContext(context, 3000)}`,
           stream: false,
           options: {
             temperature,

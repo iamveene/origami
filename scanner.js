@@ -31,8 +31,8 @@
       { name: 'Google OAuth2 Refresh Token', regex: /1\/\/[0-9A-Za-z_-]{43,}/g },
       { name: 'Google OAuth2 Client Secret', regex: /GOCSPX-[0-9A-Za-z_-]{28}/g },
       { name: 'Google OAuth2 Access Token', regex: /ya29\.[0-9A-Za-z_-]{20,}/g },
-      // UUID/GUID as Client Secret (OAuth2, API secrets, etc.)
-      { name: 'Client Secret (UUID)', regex: /(client[_-]?secret|clientSecret|CLIENT_SECRET|api[_-]?secret|apiSecret)['"]?\s*[:=]\s*['"][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}['"]/gi },
+      // UUID/GUID as Client Credential (OAuth2, API secrets, SDK credentials, etc.)
+      { name: 'Client Credential (UUID)', regex: /(client[_-]?(?:secret|id)|clientSecret|clientID|CLIENT_SECRET|CLIENT_ID|api[_-]?(?:secret|key)|apiSecret|apiKey)['"]?\s*[:=]\s*['"][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}['"]/gi },
       { name: 'Google Cloud API Key', regex: /AIza[0-9A-Za-z-_]{35}/g },
       // Google OAuth2 Client IDs are intentionally public (RFC 6749) -- not secrets
       // { name: 'Google OAuth2 Client ID', regex: /[0-9]{8,21}-[a-z0-9]{32}\.apps\.googleusercontent\.com/g },
@@ -47,8 +47,8 @@
     MEDIUM: [
       { name: 'GCP Service Account Key', regex: /"type"\s*:\s*"service_account"/g },
       { name: 'JWT Token', regex: /ey[A-Za-z0-9_]{10,}\.ey[A-Za-z0-9_]{10,}\.[A-Za-z0-9_-]{10,}/g },
-      { name: 'API Key Pattern', regex: /(api[_-]?key|apikey|api[_-]?secret)['"]?\s*[:=]\s*['"][a-zA-Z0-9_-]{24,}['"]/g },
-      { name: 'Access Token', regex: /access[_-]?token['"]?\s*[:=]\s*['"][a-zA-Z0-9_-]{20,}['"]/g },
+      { name: 'API Key Pattern', regex: /(api[_-]?key|apiKey|apikey|api[_-]?secret|apiSecret)['"]?\s*[:=]\s*['"][a-zA-Z0-9_-]{24,}['"]/g },
+      { name: 'Access Token', regex: /(access[_-]?token|accessToken)['"]?\s*[:=]\s*['"][a-zA-Z0-9_-]{20,}['"]/g },
       { name: 'CircleCI Token', regex: /circle-token\s*[:=]\s*[a-f0-9]{40}/g },
       { name: 'Password Assignment', regex: /(password|passwd|pwd|secret)['"]?\s*[:=]\s*['"](?!var\(--)[^'"]{8,}['"]/gi },
       { name: 'Basic Auth in URL', regex: /https?:\/\/[a-zA-Z0-9._-]+:[^@\/\s]{3,}@[a-zA-Z0-9.-]+/g }

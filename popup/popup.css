@@ -114,6 +114,22 @@ body {
   font-weight: 700;
   flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(147, 51, 234, 0.3);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.kanji-badge:hover {
+  box-shadow: 0 4px 16px rgba(147, 51, 234, 0.5);
+  transform: scale(1.08);
+}
+
+body.full-page-mode .kanji-badge {
+  cursor: default;
+}
+
+body.full-page-mode .kanji-badge:hover {
+  box-shadow: 0 2px 8px rgba(147, 51, 234, 0.3);
+  transform: none;
 }
 
 .brand-text {
@@ -7767,3 +7783,86 @@ input:checked + .toggle-slider:before {
   font-size: 11px;
   margin: 6px 0;
 }
+
+/* Full-page mode */
+body.full-page-mode {
+  width: 100%;
+  max-width: 900px;
+  max-height: none;
+  height: 100vh;
+  margin: 0 auto;
+}
+
+/* Target bar */
+.target-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+body.full-page-mode .target-bar { display: flex; }
+
+.target-bar-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  letter-spacing: 0.05em;
+}
+
+.target-bar-display {
+  flex: 1;
+  min-width: 0;
+}
+
+.target-bar-url {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.target-bar-url.active {
+  color: var(--purple-accent);
+  font-weight: 600;
+}
+
+/* Tab picker modal */
+.tab-picker-list { display: flex; flex-direction: column; gap: 2px; }
+
+.tab-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.tab-picker-item:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+.tab-picker-item.current { border-color: var(--purple-primary); }
+
+.tab-picker-title {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-picker-url {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+

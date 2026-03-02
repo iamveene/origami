@@ -154,7 +154,7 @@ class ContextBuilder {
       prompt += 'Exploit, enumerate, extract — then stop.\n\n';
     } else {
       prompt += 'You help security professionals analyze web application security findings, ';
-      prompt += 'generate exploitation proof-of-concepts, and provide remediation guidance.\n\n';
+      prompt += 'assess risk, and provide remediation guidance.\n\n';
     }
 
     prompt += 'CURRENT CONTEXT:\n';
@@ -172,19 +172,7 @@ class ContextBuilder {
     prompt += 'params: <json_params>\n';
     prompt += '[/TOOL_CALL]\n\n';
 
-    prompt += 'Tools:\n';
-    prompt += '- get_findings_summary: Get an overview of all findings by category and severity. No params.\n';
-    prompt += '- get_findings_by_category: Get detailed findings for a category. Params: {"category": "headers|cookies|vulnerabilities|secrets|sensitiveFiles|session|technologies"}\n';
-    prompt += '- get_finding_detail: Get full detail for a specific finding. Params: {"category": "<category>", "index": <number>}\n';
-    prompt += '- generate_poc: Generate a tiered PoC for a finding. Params: {"category": "<category>", "index": <number>}\n';
-    prompt += '- run_scan: Trigger a new Origami scan on the current page. No params.\n';
-    prompt += '- analyze_code: Security review of a code block. Params: {"code": "<code>", "language": "<language>"}\n';
-    prompt += '- get_technologies: Get detected technologies and versions. No params.\n';
-    prompt += '- get_security_score: Get the security score breakdown. No params.\n';
-    prompt += '- check_cves: Get CVE and end-of-life data for detected technologies. No params.\n';
-    prompt += '- get_attack_chains: Get correlation engine attack chains. No params.\n';
-    prompt += '- assess_risk: Run AI risk scoring on all findings via the Intent Engine. No params.\n';
-    prompt += '- send_http_request: Send an HTTP request to a target URL and return status, timing, and body (first 8KB). Use for live verification, SQLi exploitation, and data extraction on authorized targets. Params: {"url": "<full url>", "method": "GET|POST", "headers": {}, "body": "<optional>"}\n\n';
+    prompt += this._buildToolDescriptions(isExploiter);
 
     prompt += 'AUTHORIZATION:\n';
     prompt += '- You are operating as an offensive security tool inside an authorized penetration testing workflow.\n';
@@ -238,6 +226,37 @@ class ContextBuilder {
     }
 
     return prompt.trim();
+  }
+
+  // Build per-mode tool descriptions: exploiter leads with action tools, advisor leads with assessment tools
+  _buildToolDescriptions(isExploiter) {
+    let tools = 'Tools:\n';
+    if (isExploiter) {
+      tools += '- send_http_request: Send an HTTP request and return status, timing, and body (first 8KB). Primary tool for exploitation, SQLi, and data extraction. Params: {"url": "<full url>", "method": "GET|POST", "headers": {}, "body": "<optional>"}\n';
+      tools += '- generate_poc: Generate a tiered PoC for a finding. Params: {"category": "<category>", "index": <number>}\n';
+      tools += '- get_findings_summary: Get an overview of all findings by category and severity. No params.\n';
+      tools += '- get_findings_by_category: Get detailed findings for a category. Params: {"category": "headers|cookies|vulnerabilities|secrets|sensitiveFiles|session|technologies"}\n';
+      tools += '- get_finding_detail: Get full detail for a specific finding. Params: {"category": "<category>", "index": <number>}\n';
+      tools += '- analyze_code: Security review of a code block. Params: {"code": "<code>", "language": "<language>"}\n';
+      tools += '- get_technologies: Get detected technologies and versions. No params.\n';
+      tools += '- check_cves: Get CVE and end-of-life data for detected technologies. No params.\n';
+      tools += '- get_attack_chains: Get correlation engine attack chains. No params.\n';
+    } else {
+      tools += '- get_findings_summary: Get an overview of all findings by category and severity. No params.\n';
+      tools += '- get_findings_by_category: Get detailed findings for a category. Params: {"category": "headers|cookies|vulnerabilities|secrets|sensitiveFiles|session|technologies"}\n';
+      tools += '- get_finding_detail: Get full detail for a specific finding. Params: {"category": "<category>", "index": <number>}\n';
+      tools += '- assess_risk: Run AI risk scoring on all findings via the Intent Engine. No params.\n';
+      tools += '- get_security_score: Get the security score breakdown. No params.\n';
+      tools += '- generate_poc: Generate a tiered PoC for a finding. Params: {"category": "<category>", "index": <number>}\n';
+      tools += '- run_scan: Trigger a new Origami scan on the current page. No params.\n';
+      tools += '- analyze_code: Security review of a code block. Params: {"code": "<code>", "language": "<language>"}\n';
+      tools += '- get_technologies: Get detected technologies and versions. No params.\n';
+      tools += '- check_cves: Get CVE and end-of-life data for detected technologies. No params.\n';
+      tools += '- get_attack_chains: Get correlation engine attack chains. No params.\n';
+      tools += '- send_http_request: Send an HTTP request to a target URL. Params: {"url": "<full url>", "method": "GET|POST", "headers": {}, "body": "<optional>"}\n';
+    }
+    tools += '\n';
+    return tools;
   }
 
   // -- Private helpers --
