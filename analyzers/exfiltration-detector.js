@@ -100,7 +100,8 @@ class ExfiltrationDetector {
 
         dataTypes.push('credential:' + paramLower);
         const isHighSevCred = this._highSeverityCreds.includes(paramLower);
-        const credSeverity = isHighSevCred ? 'HIGH' : (isFirstParty ? 'LOW' : 'MEDIUM');
+        const isPublishableKey = !isHighSevCred && (classification === 'analytics' || classification === 'advertising');
+        const credSeverity = isHighSevCred ? 'HIGH' : (isFirstParty || isPublishableKey ? 'LOW' : 'MEDIUM');
         this._addIssue(credSeverity,
           'credential-in-url', 'Credential parameter "' + paramName + '" sent in URL query string',
           'CWE-598', { destination: hostname, method: 'GET', dataTypes: ['credential:' + paramLower],
@@ -458,7 +459,7 @@ class ExfiltrationDetector {
           return this._highSeverityCreds.includes(param);
         });
         const knownDomain = s.classification === 'cdn' || s.classification === 'analytics' || s.classification === 'advertising';
-        const credSeverity = (knownDomain && !hasHighSevCred) ? 'MEDIUM' : 'HIGH';
+        const credSeverity = hasHighSevCred ? 'HIGH' : (knownDomain ? 'LOW' : 'MEDIUM');
         this._addIssue(credSeverity, 'credentials-to-third-party',
           'Credential data sent to third party (' + s.classification + '): ' + s.destination,
           'CWE-598', { destination: s.destination, method: 'GET', dataTypes: credTypes, requestUrl: agg, isFirstParty: false, classification: s.classification },

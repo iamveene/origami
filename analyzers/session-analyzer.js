@@ -147,9 +147,21 @@ class SessionAnalyzer {
       return { name: name.trim(), value: rest.join('=') };
     }).filter(c => c.name);
 
+    // Infrastructure cookies (CDN, WAF, bot protection) are not application sessions
+    const infraCookieNames = new Set([
+      '__cf_bm', 'cf_clearance', '__cflb', '_abck', 'ak_bmsc', 'bm_sz', 'bm_sv', 'bm_mi',
+      'AWSALB', 'AWSALBCORS', 'AWSELB', 'AWSELBCORS', 'aws-waf-token',
+      'datadome', '_pxhd', '_pxvid', '_px3', '_pxde', 'pxcts',
+      'visid_incap', '_GRECAPTCHA', '_vuid', '_dd_s',
+      'SERVERID', 'ROUTEID'
+    ]);
+    const infraCookiePrefixes = ['__cf_', 'cf_', 'bm_', 'ak_', 'aka-', '_px', 'incap_ses', 'nlbi_', 'BIGipServer', 'aws-waf-'];
+
     for (const cookie of cookies) {
       const isSessionCookie = sessionPatterns.some(p => p.test(cookie.name));
-      if (isSessionCookie) {
+      if (!isSessionCookie) continue;
+      const isInfra = infraCookieNames.has(cookie.name) || infraCookiePrefixes.some(p => cookie.name.startsWith(p));
+      if (!isInfra) {
         const cookieInfo = {
           name: cookie.name,
           valueLength: cookie.value.length,
@@ -158,7 +170,7 @@ class SessionAnalyzer {
           issues: []
         };
 
-        if (cookie.value.length > 0 && cookieInfo.entropy < 3.0) {
+        if (cookie.value.length >= 16 && cookieInfo.entropy < 3.0) {
           const analyticsSessionPrefixes = /^(analytics_|vx_|ga_|_ga_)/i;
           const severity = analyticsSessionPrefixes.test(cookie.name) ? 'INFO' : 'HIGH';
           cookieInfo.issues.push({ severity, message: 'Session cookie has low entropy (' + cookieInfo.entropy.toFixed(2) + ') - potentially predictable' });
