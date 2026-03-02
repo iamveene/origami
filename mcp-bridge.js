@@ -217,12 +217,30 @@ class MCPBridge {
         return { error: true, message: 'Failed to activate tab ' + params.tabId + ': ' + e.message };
       }
     } else {
-      // Fall back to current active tab
-      activeTab = await this._getActiveTab();
-      if (!activeTab && !MCPBridge.TAB_INDEPENDENT_ACTIONS.has(action)) {
-        return { error: true, message: 'No active tab found. Open a page in Chrome first.' };
+      // Check for popup-stored MCP context tab (set when popup opens with ?target=<tabId>).
+      // This prevents MCP from reading from the popup tab (which stores no findings)
+      // when the popup is open in full-window mode and is the active Chrome tab.
+      try {
+        const ctx = await chrome.storage.local.get('mcp_context_tab');
+        if (ctx.mcp_context_tab) {
+          try {
+            activeTab = await chrome.tabs.get(ctx.mcp_context_tab);
+            tabId = ctx.mcp_context_tab;
+          } catch (e) {
+            // Stored tab no longer exists; clear it and fall through to active tab
+            await chrome.storage.local.remove('mcp_context_tab');
+          }
+        }
+      } catch (e) { /* storage unavailable */ }
+
+      if (!tabId) {
+        // Fall back to current active tab
+        activeTab = await this._getActiveTab();
+        if (!activeTab && !MCPBridge.TAB_INDEPENDENT_ACTIONS.has(action)) {
+          return { error: true, message: 'No active tab found. Open a page in Chrome first.' };
+        }
+        tabId = activeTab?.id;
       }
-      tabId = activeTab?.id;
     }
 
     switch (action) {

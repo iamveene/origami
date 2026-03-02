@@ -1054,7 +1054,8 @@ class VulnerabilityScanner {
         'amplitude', 'mixpanel', 'segment', 'fullstory', 'heap',
         'intercom', 'drift', 'hotjar', 'optimizely', 'pendo',
         'aws-waf', 'aws_waf', 'permutive', 'statsig', 'lngtd',
-        '__tea_', '_hbs_', 'webapp-session'
+        '__tea_', '_hbs_', 'webapp-session',
+        'session-replay', 'session_replay'
       ];
 
       for (const { store, name } of storages) {
@@ -1064,6 +1065,15 @@ class VulnerabilityScanner {
 
           // Skip known analytics/SDK keys
           if (analyticsKeyPrefixes.some(prefix => key.toLowerCase().startsWith(prefix.toLowerCase()))) continue;
+
+          // P45: Skip keys containing "unauth" (explicitly unauthenticated, not sensitive)
+          if (/unauth/i.test(key)) continue;
+
+          // P46: Skip tracking/analytics instrumentation keys
+          if (/tracking/i.test(key)) continue;
+
+          // P47: Skip counter/tally keys (metadata about counts, not stored secrets)
+          if (/^(numberOf|countOf|total[A-Z])/i.test(key)) continue;
 
           const value = store.getItem(key) || '';
           const entropy = this.calculateEntropy(value);

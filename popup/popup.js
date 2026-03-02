@@ -323,6 +323,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const tab = await chrome.tabs.get(tabId);
         setTargetOverride(tabId, tab.url);
+        // Store target tab for MCP bridge -- prevents MCP from reading from the
+        // popup tab (which has no findings) when popup is the active Chrome tab.
+        chrome.storage.local.set({ mcp_context_tab: tabId });
       } catch (e) { /* tab doesn't exist, fall through */ }
     }
   }
