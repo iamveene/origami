@@ -69,7 +69,48 @@ Optional:
 - Use the **AI Partner** for interactive security chat with full scan context
 - Run **AI Assess All** to batch-analyze every finding at once
 
-See [USAGE.md](USAGE.md) for the full walkthrough with screenshots.
+See [USAGE.md](USAGE.md) for the full walkthrough.
+
+
+## Highlights
+
+### Inline AI Assessment
+
+Every finding card has an **AI Assess** button for exploitability analysis and severity recalibration.
+
+![AI Assess](docs/screenshots/ai-assess.png)
+
+### AI Partner -- Advisor
+
+Context-aware chat with full scan data. Defensive analysis, remediation guidance, risk prioritization.
+
+![AI Partner Advisor](docs/screenshots/ai-partner.png)
+
+### AI Partner -- Exploiter
+
+Offensive mode. Exploit chains, payload crafting, attack path mapping. Probes live endpoints.
+
+![AI Partner Exploiter](docs/screenshots/ai-partner-exploiter.png)
+
+### SQLi Tester
+
+SQL injection engine modeled after sqlmap. 8-phase detection, 5 DBMS targets, AI-assisted autonomous mode.
+
+![SQLi Tester](docs/screenshots/attack-lab-sqli.png)
+
+### Attack Lab
+
+Chain correlation, drag-and-drop workbench, PoC generator, intent scoring.
+
+![Attack Lab](docs/screenshots/attack-lab-tab.png)
+
+### MCP Server for Claude Code
+
+18 tools exposed via Model Context Protocol for AI-assisted security workflows.
+
+![MCP Bridge Settings](docs/screenshots/mcp-settings.png)
+
+For all features and screenshots, see [USAGE.md](USAGE.md).
 
 
 ## Features
