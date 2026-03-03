@@ -311,62 +311,54 @@ class MCPBridge {
   // Tabs created/navigated by MCP automation may miss the manifest-driven
   // content script injection lifecycle.
   async _ensureContentScripts(tabId) {
+    // Fast path: check if coordinator is present via function probe (no messaging overhead)
     try {
-      // Probe: check if content scripts are already responding
-      await new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, { action: 'ping' }, (resp) => {
-          if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-          else resolve(resp);
-        });
+      const [{ result: alreadyPresent }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => typeof window.runAllAnalyzers === 'function',
       });
-    } catch {
-      // Ping failed. Check if scripts are already in the page (race condition guard).
-      try {
-        const [{ result: alreadyPresent }] = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: () => typeof window.runAllAnalyzers === 'function',
-        });
-        if (alreadyPresent) return;
-      } catch { /* ignore — proceed with injection */ }
-      // Content scripts not present -- inject them
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: [
-            'constants.js',
-            'scanner.js',
-            'analyzers/header-analyzer.js',
-            'analyzers/cookie-analyzer.js',
-            'analyzers/vuln-scanner.js',
-            'analyzers/tech-fingerprinter.js',
-            'analyzers/sensitive-file-scanner.js',
-            'analyzers/resource-collector.js',
-            'analyzers/session-analyzer.js',
-            'analyzers/oauth-interceptor.js',
-            'analyzers/saml-decoder.js',
-            'analyzers/graphql-mapper.js',
-            'analyzers/surface-tracker.js',
-            'analyzers/correlation-engine.js',
-            'lib/origami-utils.js',
-            'analyzers/crypto-auditor.js',
-            'analyzers/cloud-storage-mapper.js',
-            'analyzers/exfiltration-detector.js',
-            'analyzers/websocket-auditor.js',
-            'analyzers/js-obfuscation-detector.js',
-            'lib/js-yaml.min.js',
-            'templates/template-engine.js',
-            'workbench/chain-builder.js',
-            'plugins/plugin-validator.js',
-            'plugins/plugin-registry.js',
-            'plugins/plugin-loader.js',
-            'analyzers/analyzer-coordinator.js',
-          ],
-        });
-        // Give scripts a moment to initialize
-        await new Promise(r => setTimeout(r, 500));
-      } catch (e) {
-        console.error('Origami MCP: Failed to inject content scripts:', e.message);
-      }
+      if (alreadyPresent) return;
+    } catch { /* tab may not be scriptable -- fall through to injection */ }
+
+    // Content scripts not present -- inject them.
+    // Each script has an injection guard (B3 fix) so re-injection is safe.
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: [
+          'constants.js',
+          'scanner.js',
+          'analyzers/header-analyzer.js',
+          'analyzers/cookie-analyzer.js',
+          'analyzers/vuln-scanner.js',
+          'analyzers/tech-fingerprinter.js',
+          'analyzers/sensitive-file-scanner.js',
+          'analyzers/resource-collector.js',
+          'analyzers/session-analyzer.js',
+          'analyzers/oauth-interceptor.js',
+          'analyzers/saml-decoder.js',
+          'analyzers/graphql-mapper.js',
+          'analyzers/surface-tracker.js',
+          'analyzers/correlation-engine.js',
+          'lib/origami-utils.js',
+          'analyzers/crypto-auditor.js',
+          'analyzers/cloud-storage-mapper.js',
+          'analyzers/exfiltration-detector.js',
+          'analyzers/websocket-auditor.js',
+          'analyzers/js-obfuscation-detector.js',
+          'lib/js-yaml.min.js',
+          'templates/template-engine.js',
+          'workbench/chain-builder.js',
+          'plugins/plugin-validator.js',
+          'plugins/plugin-registry.js',
+          'plugins/plugin-loader.js',
+          'analyzers/analyzer-coordinator.js',
+        ],
+      });
+      // Give scripts a moment to initialize
+      await new Promise(r => setTimeout(r, 500));
+    } catch (e) {
+      console.error('Origami MCP: Failed to inject content scripts:', e.message);
     }
   }
 
