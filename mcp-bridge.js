@@ -200,21 +200,40 @@ class MCPBridge {
     return this._addDataBoundary(result, action);
   }
 
+  // Attach resolved tabId to results so callers can pass it explicitly in subsequent calls.
+  // This prevents the mcp_context_tab race when multiple sessions are active.
+  _attachTabId(result, tabId) {
+    if (result && typeof result === 'object' && !result.error && tabId) {
+      result._tabId = tabId;
+    }
+    return result;
+  }
+
+  // Actions that only read data and should NOT focus/activate the target tab
+  static READ_ONLY_ACTIONS = new Set([
+    'getPageInfo', 'getFindingsSummary', 'getFindingsByCategory', 'getFindingDetail',
+    'getSecurityScore', 'getTechnologies', 'checkCves', 'getAttackChains', 'assessRisk',
+    'getSessionAnalysis', 'getAuthFlows', 'getGraphQLSchema', 'exportReport',
+  ]);
+
   // Route MCP actions to extension functionality
   async _routeAction(action, params) {
     let activeTab;
     let tabId;
 
     if (params.tabId) {
-      // Caller specified a tab -- focus its window and activate it
+      // Caller specified an explicit tab
       try {
-        const tab = await chrome.tabs.get(params.tabId);
-        await chrome.windows.update(tab.windowId, { focused: true });
-        await chrome.tabs.update(params.tabId, { active: true });
         activeTab = await chrome.tabs.get(params.tabId);
         tabId = params.tabId;
+        // Only focus/activate for actions that interact with the page (scan, override)
+        if (!MCPBridge.READ_ONLY_ACTIONS.has(action)) {
+          await chrome.windows.update(activeTab.windowId, { focused: true });
+          await chrome.tabs.update(params.tabId, { active: true });
+          activeTab = await chrome.tabs.get(params.tabId);
+        }
       } catch (e) {
-        return { error: true, message: 'Failed to activate tab ' + params.tabId + ': ' + e.message };
+        return { error: true, message: 'Tab ' + params.tabId + ' not found: ' + e.message };
       }
     } else {
       // Check for popup-stored MCP context tab (set when popup opens with ?target=<tabId>).
@@ -243,61 +262,64 @@ class MCPBridge {
       }
     }
 
+    // Execute action and attach resolved tabId for caller reference
+    let result;
     switch (action) {
       case 'getPageInfo':
-        return this._getPageInfo(activeTab);
-
+        result = this._getPageInfo(activeTab);
+        break;
       case 'runScan':
-        return this._runScan(tabId);
-
+        result = await this._runScan(tabId);
+        break;
       case 'getFindingsSummary':
-        return this._getFindingsSummary(tabId);
-
+        result = await this._getFindingsSummary(tabId);
+        break;
       case 'getFindingsByCategory':
-        return this._getFindingsByCategory(tabId, params.category);
-
+        result = await this._getFindingsByCategory(tabId, params.category);
+        break;
       case 'getFindingDetail':
-        return this._getFindingDetail(tabId, params.category, params.index);
-
+        result = await this._getFindingDetail(tabId, params.category, params.index);
+        break;
       case 'getSecurityScore':
-        return this._getSecurityScore(tabId);
-
+        result = await this._getSecurityScore(tabId);
+        break;
       case 'getTechnologies':
-        return this._getTechnologies(tabId);
-
+        result = await this._getTechnologies(tabId);
+        break;
       case 'checkCves':
-        return this._checkCves(tabId);
-
+        result = await this._checkCves(tabId);
+        break;
       case 'getAttackChains':
-        return this._getAttackChains(tabId);
-
+        result = await this._getAttackChains(tabId);
+        break;
       case 'assessRisk':
-        return this._assessRisk(tabId);
-
+        result = await this._assessRisk(tabId);
+        break;
       case 'generatePoC':
-        return this._generatePoC(tabId, params.category, params.index);
-
+        result = await this._generatePoC(tabId, params.category, params.index);
+        break;
       case 'overrideSeverity':
-        return this._overrideSeverity(tabId, params.category, params.index, params.newSeverity, params.reason);
-
+        result = await this._overrideSeverity(tabId, params.category, params.index, params.newSeverity, params.reason);
+        break;
       case 'sendRequest':
-        return this._sendRequest(params.url, params.method, params.headers, params.body, params.maxResponseBody);
-
+        result = await this._sendRequest(params.url, params.method, params.headers, params.body, params.maxResponseBody);
+        break;
       case 'getSessionAnalysis':
-        return this._getSessionAnalysis(tabId);
-
+        result = await this._getSessionAnalysis(tabId);
+        break;
       case 'getAuthFlows':
-        return this._getAuthFlows(tabId);
-
+        result = await this._getAuthFlows(tabId);
+        break;
       case 'getGraphQLSchema':
-        return this._getGraphQLSchema(tabId);
-
+        result = await this._getGraphQLSchema(tabId);
+        break;
       case 'exportReport':
-        return this._exportReport(tabId, params.format, params.includeAiSummary);
-
+        result = await this._exportReport(tabId, params.format, params.includeAiSummary);
+        break;
       default:
         return { error: true, message: 'Unknown action: ' + action };
     }
+    return this._attachTabId(result, tabId);
   }
 
   // ─── Action Implementations ──────────────────────────────────────────────
