@@ -1101,7 +1101,9 @@ class MCPBridge {
       return { error: true, message: 'No scan data to export.' };
     }
 
-    const tab = await this._getActiveTab();
+    // Use the resolved tabId (not active tab) to get the correct target URL
+    let tab = null;
+    try { tab = await chrome.tabs.get(tabId); } catch (e) { /* tab may be closed */ }
     const domain = tab ? (() => { try { return new URL(tab.url).hostname; } catch (e) { return 'unknown'; } })() : 'unknown';
 
     const metadata = {
