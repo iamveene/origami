@@ -194,9 +194,10 @@ class MCPBridge {
     return result;
   }
 
-  // Entry point for all MCP tool actions. Applies data boundaries after routing.
+  // Entry point for all MCP tool actions. Applies data boundaries and size limits.
   async _executeAction(action, params) {
-    const result = await this._routeAction(action, params);
+    let result = await this._routeAction(action, params);
+    result = this._truncateResponse(result, params.maxResponseSize);
     return this._addDataBoundary(result, action);
   }
 
@@ -207,6 +208,54 @@ class MCPBridge {
       result._tabId = tabId;
     }
     return result;
+  }
+
+  // Truncate oversized responses to prevent context window overflow.
+  // Default limit: 50K chars. Caller can override via maxResponseSize param.
+  _truncateResponse(result, maxSize) {
+    if (!result || result.error) return result;
+    const limit = Math.min(maxSize || 50000, 200000);
+    let serialized;
+    try {
+      serialized = JSON.stringify(result);
+    } catch { return result; }
+
+    if (serialized.length <= limit) return result;
+
+    // Truncate large string fields first (evidence, details, content)
+    const truncated = JSON.parse(serialized);
+    const stringLimit = 2000;
+
+    const truncateObj = (obj) => {
+      if (!obj || typeof obj !== 'object') return;
+      for (const key of Object.keys(obj)) {
+        const val = obj[key];
+        if (typeof val === 'string' && val.length > stringLimit) {
+          obj[key] = val.substring(0, stringLimit) + '... [truncated, ' + val.length + ' total chars]';
+        } else if (Array.isArray(val)) {
+          // Truncate array items; if array is very large, cap it
+          if (val.length > 100) {
+            const removed = val.length - 50;
+            obj[key] = val.slice(0, 50);
+            obj[key].push({ _truncated: removed + ' more items omitted. Use get_finding_detail for individual findings.' });
+          }
+          val.forEach(item => truncateObj(item));
+        } else if (typeof val === 'object' && val !== null) {
+          truncateObj(val);
+        }
+      }
+    };
+
+    truncateObj(truncated);
+    // Re-check size after field truncation
+    try {
+      const recheck = JSON.stringify(truncated);
+      if (recheck.length > limit) {
+        truncated._responseTruncated = true;
+        truncated._note = 'Response truncated from ' + serialized.length + ' to ~' + limit + ' chars. Use get_finding_detail with specific index for full data.';
+      }
+    } catch { /* proceed with truncated version */ }
+    return truncated;
   }
 
   // Actions that only read data and should NOT focus/activate the target tab
