@@ -6,20 +6,20 @@ Origami is a Chrome extension for offensive and defensive security testing that 
 
 1. [Installation](#installation)
 2. [First Scan](#first-scan)
-3. [Secrets Detection](#secrets-detection)
-4. [Security Analysis](#security-analysis)
-5. [Resource Inventory](#resource-inventory)
-6. [Attack Lab](#attack-lab)
-7. [HTTP Repeater](#http-repeater)
-8. [GraphQL Mapper](#graphql-mapper)
-9. [Detection Templates](#detection-templates)
-10. [Plugins](#plugins)
-11. [Reports](#reports)
-12. [API Key Testing](#api-key-testing)
-13. [Settings](#settings)
-14. [Scan History](#scan-history)
-15. [AI Integration](#ai-integration)
-16. [MCP Server for Claude Code](#mcp-server-for-claude-code)
+3. [AI Integration](#ai-integration)
+4. [Attack Lab](#attack-lab)
+5. [MCP Server for Claude Code](#mcp-server-for-claude-code)
+6. [Secrets Detection](#secrets-detection)
+7. [Security Analysis](#security-analysis)
+8. [HTTP Repeater](#http-repeater)
+9. [GraphQL Mapper](#graphql-mapper)
+10. [Resource Inventory](#resource-inventory)
+11. [API Key Testing](#api-key-testing)
+12. [Detection Templates](#detection-templates)
+13. [Plugins](#plugins)
+14. [Reports](#reports)
+15. [Scan History](#scan-history)
+16. [Settings](#settings)
 
 
 ## Installation
@@ -64,6 +64,141 @@ Good security practices earn bonus points (up to 25 total): strict CSP (+5), no 
 **Categories**: Secrets, headers, cookies, vulnerabilities, sensitive files, SCA (CVE/EOL from detected technologies), session, OAuth, GraphQL, crypto, cloud storage, exfiltration, WebSocket.
 
 ![Security Score Dashboard](docs/screenshots/security-headers.png)
+
+
+## AI Integration
+
+Origami integrates with four LLM providers for intelligent security assessment. AI features are optional and require configuration in Settings.
+
+![Settings LLM Integration](docs/screenshots/settings-tab.png)
+
+### Supported Providers
+
+| Provider | Models | API Key Required |
+|----------|--------|-----------------|
+| OpenAI | GPT-5.2, GPT-4o, GPT-4o Mini, GPT-4.1, GPT-4.1 Mini, GPT-4 Turbo | Yes |
+| Anthropic | Claude Sonnet 4.6, Claude Opus 4.6, Claude Sonnet 4.5, Claude Haiku 4.5 | Yes |
+| Google | Gemini 2.5 Flash, Gemini 2.5 Flash Lite, Gemini 2.5 Pro | Yes |
+| Ollama | Gemma 3, Llama 3.1/3.2, Qwen 2.5 Coder, Phi-4, Mistral, Code Llama, DeepSeek Coder | No (local) |
+
+### Configuration
+
+1. Go to **Settings** and expand the **LLM Integration** section
+2. Select your provider
+3. Enter your API key (not required for Ollama)
+4. Choose a model and adjust parameters (temperature, max tokens)
+5. Click **Test Connection** to verify
+
+For maximum privacy, use **Ollama** with local models at `http://localhost:11434`. No API key or external calls required.
+
+### Inline AI Assessment
+
+Every finding card includes an **AI Assess** button. Click it to get a detailed analysis with exploitability rating, impact assessment, and a recommended severity level that auto-applies if different from the original.
+
+![AI Assess](docs/screenshots/ai-assess.png)
+
+### AI Assess All
+
+Bulk-assess all findings at once. Click **AI Assess All** in the header to run batch analysis across all categories. Configurable concurrency and severity filters in Settings.
+
+![AI Assess All](docs/screenshots/ai-assess-all.png)
+
+### AI Partner -- Advisor
+
+Context-aware chat with full scan data. Advisor mode provides defensive analysis, remediation guidance, and risk prioritization. Quick-action buttons: Summarize, Top Risks, PoC, Remediation, Chains.
+
+![AI Partner Advisor](docs/screenshots/ai-partner.png)
+
+### AI Partner -- Exploiter
+
+Switch to Exploiter mode for offensive analysis. Generates exploit chains, crafts payloads, and maps attack paths. Tool calls probe live endpoints for validation.
+
+![AI Partner Exploiter](docs/screenshots/ai-partner-exploiter.png)
+
+### PoC Generator
+
+Context-aware proof-of-concept generation in Attack Lab. Select any finding and generate three tiers of exploits: Basic payload, Intermediate with bypass techniques, and Advanced with full exploitation chain. CSP-aware and technology-specific.
+
+![PoC Generator](docs/screenshots/attack-lab-poc.png)
+
+### Intent Engine
+
+AI-powered risk scoring in Attack Lab > Intent. Evaluates all findings on four dimensions: exploitability, business impact, PoC difficulty, and program relevance. Composite scores prioritize the highest-value targets.
+
+![Intent Engine](docs/screenshots/attack-lab-intent.png)
+
+### Additional AI Capabilities
+
+- **15 pre-built prompt templates** covering OWASP analysis, compliance, attack surface mapping
+- **Custom prompts** for specialized analysis
+- **Auto-rule generation** from natural language descriptions
+- **Risk scoring** with CVSS-aligned exploitability and business impact
+- **Streaming responses** for real-time output
+
+
+## Attack Lab
+
+The Attack Lab provides tools for analyzing, chaining, and exploiting findings. It contains five sub-tabs.
+
+![Attack Lab](docs/screenshots/attack-lab-tab.png)
+
+### Chains
+
+The correlation engine links related findings across all analyzer outputs into multi-step attack chains. 12 built-in chain patterns detect compound vulnerabilities that individual scanners miss, including XSS + missing CSP, token theft via XSS, CSRF + session hijack, OAuth redirect token theft, and more.
+
+![Chains](docs/screenshots/attack-lab-chains.png)
+
+### Workbench
+
+Interactive drag-and-drop chain builder for constructing custom attack chains from current page findings. Finding cards on the left, chain canvas in the center, AI analysis on the right.
+
+![Workbench](docs/screenshots/attack-lab-workbench.png)
+
+### PoC Generator
+
+Context-aware proof-of-concept generation for individual findings and assembled attack chains. Requires LLM configuration.
+
+- **Basic** -- PoC payload
+- **Intermediate** -- Bypass techniques and defensive measures
+- **Advanced** -- Full exploitation chain with post-exploitation scenarios
+- CSP-aware payload generation that accounts for active Content Security Policies
+- Technology-specific techniques tailored to the detected stack
+
+![PoC Generator](docs/screenshots/attack-lab-poc.png)
+
+### Intent
+
+AI-powered intent analysis engine for assessing the risk posture of detected findings with exploitability and business impact scoring.
+
+![Intent Engine](docs/screenshots/attack-lab-intent.png)
+
+### Cookies
+
+Cookie manipulation and analysis tools for testing cookie-based attack vectors.
+
+![Cookie Tools](docs/screenshots/attack-lab-cookies.png)
+
+
+## MCP Server for Claude Code
+
+Origami includes a Model Context Protocol server that exposes scan findings to Claude Code for AI-assisted security analysis. Configure the WebSocket bridge in Settings under **MCP Bridge (Claude Code)**.
+
+![MCP Bridge Settings](docs/screenshots/mcp-settings.png)
+
+### Setup
+
+```bash
+cd mcp-server
+./setup.sh
+```
+
+This installs the MCP server and registers it with Claude Code.
+
+### Available Tools (18 total)
+
+`get_connection_status`, `scan_page`, `get_findings_summary`, `get_findings_by_category`, `get_finding_detail`, `get_security_score`, `get_technologies`, `check_cves`, `get_attack_chains`, `assess_risk`, `generate_poc`, `override_severity`, `send_request`, `get_session_analysis`, `get_auth_flows`, `get_graphql_schema`, `export_report`, `get_page_info`
+
+All tool responses include hallucination-resistant data boundaries. The MCP server uses a WebSocket bridge (`ws://127.0.0.1:9340`) for real-time communication between the extension and Claude Code. The bridge token is configured in Settings.
 
 
 ## Secrets Detection
@@ -208,6 +343,34 @@ Audits WebSocket (ws/wss) and Server-Sent Events connections for unencrypted con
 ![WebSocket Audit](docs/screenshots/security-websocket.png)
 
 
+## HTTP Repeater
+
+Craft HTTP requests, send them via the background service worker (bypassing CORS restrictions), and inspect responses.
+
+![Repeater](docs/screenshots/repeater-tab.png)
+
+- Select HTTP method (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD)
+- Enter the target URL and add custom headers
+- Add a request body for POST/PUT/PATCH requests
+- View response status, headers, body with syntax highlighting, and timing
+- **Import cURL** to load a request from a cURL command
+- **Export cURL** to copy the current request as a cURL command
+- Request history with replay capability
+
+
+## GraphQL Mapper
+
+Auto-detect GraphQL endpoints and map the attack surface.
+
+![GraphQL](docs/screenshots/graphql-tab.png)
+
+- Auto-detect GraphQL endpoints across Apollo, urql, Relay, and raw `/graphql` paths
+- Introspection queries via the background service worker to bypass CORS restrictions
+- Schema visualization with types, queries, mutations, and enums
+- Security checks: auth gaps on mutations, deep nesting denial-of-service, sensitive field exposure, batching attacks, deprecated field usage
+- Built-in query builder for crafting and testing queries
+
+
 ## Resource Inventory
 
 The Inventory tab provides a comprehensive view of all page resources with four sub-tabs.
@@ -250,73 +413,16 @@ Attack surface evolution tracker. Save baselines of the current scan state per d
 ![Evolution Tracker](docs/screenshots/inventory-evolution.png)
 
 
-## Attack Lab
+## API Key Testing
 
-The Attack Lab provides tools for analyzing, chaining, and exploiting findings. It contains five sub-tabs.
+Validate discovered API keys against live services to determine their scope and permissions.
 
-![Attack Lab](docs/screenshots/attack-lab-tab.png)
+![API Testing](docs/screenshots/api-testing-tab.png)
 
-### Chains
-
-The correlation engine links related findings across all analyzer outputs into multi-step attack chains. 12 built-in chain patterns detect compound vulnerabilities that individual scanners miss, including XSS + missing CSP, token theft via XSS, CSRF + session hijack, OAuth redirect token theft, and more.
-
-![Chains](docs/screenshots/attack-lab-chains.png)
-
-### Workbench
-
-Interactive drag-and-drop chain builder for constructing custom attack chains from current page findings. Finding cards on the left, chain canvas in the center, AI analysis on the right.
-
-![Workbench](docs/screenshots/attack-lab-workbench.png)
-
-### PoC Generator
-
-Context-aware proof-of-concept generation for individual findings and assembled attack chains. Requires LLM configuration.
-
-- **Basic** -- PoC payload
-- **Intermediate** -- Bypass techniques and defensive measures
-- **Advanced** -- Full exploitation chain with post-exploitation scenarios
-- CSP-aware payload generation that accounts for active Content Security Policies
-- Technology-specific techniques tailored to the detected stack
-
-### Intent
-
-AI-powered intent analysis engine for assessing the risk posture of detected findings with exploitability and business impact scoring.
-
-![Intent Engine](docs/screenshots/attack-lab-intent.png)
-
-### Cookies
-
-Cookie manipulation and analysis tools for testing cookie-based attack vectors.
-
-![Cookie Tools](docs/screenshots/attack-lab-cookies.png)
-
-
-## HTTP Repeater
-
-Craft HTTP requests, send them via the background service worker (bypassing CORS restrictions), and inspect responses.
-
-![Repeater](docs/screenshots/repeater-tab.png)
-
-- Select HTTP method (GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD)
-- Enter the target URL and add custom headers
-- Add a request body for POST/PUT/PATCH requests
-- View response status, headers, body with syntax highlighting, and timing
-- **Import cURL** to load a request from a cURL command
-- **Export cURL** to copy the current request as a cURL command
-- Request history with replay capability
-
-
-## GraphQL Mapper
-
-Auto-detect GraphQL endpoints and map the attack surface.
-
-![GraphQL](docs/screenshots/graphql-tab.png)
-
-- Auto-detect GraphQL endpoints across Apollo, urql, Relay, and raw `/graphql` paths
-- Introspection queries via the background service worker to bypass CORS restrictions
-- Schema visualization with types, queries, mutations, and enums
-- Security checks: auth gaps on mutations, deep nesting denial-of-service, sensitive field exposure, batching attacks, deprecated field usage
-- Built-in query builder for crafting and testing queries
+- **Google API Keys** -- Test against 27 Google services (YouTube, Maps, Drive, Sheets, Calendar, Gmail, Analytics, BigQuery, Vertex AI, Gemini, Vision, Speech, Cloud Storage, and more)
+- **AWS Credentials** -- Validate AWS access keys
+- **Azure Credentials** -- Test Azure connection strings
+- Results show which services the key has access to and the permission level
 
 
 ## Detection Templates
@@ -357,16 +463,16 @@ Generate comprehensive security reports from the current scan results.
 - Webhook integration for CI/CD pipelines (POST/PUT/PATCH)
 
 
-## API Key Testing
+## Scan History
 
-Validate discovered API keys against live services to determine their scope and permissions.
+Review past scan results across sessions.
 
-![API Testing](docs/screenshots/api-testing-tab.png)
+![History](docs/screenshots/history-tab.png)
 
-- **Google API Keys** -- Test against 27 Google services (YouTube, Maps, Drive, Sheets, Calendar, Gmail, Analytics, BigQuery, Vertex AI, Gemini, Vision, Speech, Cloud Storage, and more)
-- **AWS Credentials** -- Validate AWS access keys
-- **Azure Credentials** -- Test Azure connection strings
-- Results show which services the key has access to and the permission level
+- Stores up to 100 scan entries
+- Each entry shows the scanned URL, timestamp, finding counts by severity, and overall score
+- Click any entry to review its findings in detail
+- Clear individual entries or the entire history
 
 
 ## Settings
@@ -405,86 +511,3 @@ Configure all aspects of Origami's behavior. Settings are organized into collaps
 - **Security Score Configuration** -- Adjust scoring weights and category caps
 - **History** -- Configure scan history retention
 - **MCP Bridge (Claude Code)** -- Enable WebSocket bridge for Claude Code integration
-
-
-## Scan History
-
-Review past scan results across sessions.
-
-![History](docs/screenshots/history-tab.png)
-
-- Stores up to 100 scan entries
-- Each entry shows the scanned URL, timestamp, finding counts by severity, and overall score
-- Click any entry to review its findings in detail
-- Clear individual entries or the entire history
-
-
-## AI Integration
-
-Origami integrates with four LLM providers for intelligent security assessment. AI features are optional and require configuration in Settings.
-
-![Settings LLM Integration](docs/screenshots/settings-tab.png)
-
-### Supported Providers
-
-| Provider | Models | API Key Required |
-|----------|--------|-----------------|
-| OpenAI | GPT-5.2, GPT-4o, GPT-4o Mini, GPT-4.1, GPT-4.1 Mini, GPT-4 Turbo | Yes |
-| Anthropic | Claude Sonnet 4.6, Claude Opus 4.6, Claude Sonnet 4.5, Claude Haiku 4.5 | Yes |
-| Google | Gemini 2.5 Flash, Gemini 2.5 Flash Lite, Gemini 2.5 Pro | Yes |
-| Ollama | Gemma 3, Llama 3.1/3.2, Qwen 2.5 Coder, Phi-4, Mistral, Code Llama, DeepSeek Coder | No (local) |
-
-### Configuration
-
-1. Go to **Settings** and expand the **LLM Integration** section
-2. Select your provider
-3. Enter your API key (not required for Ollama)
-4. Choose a model and adjust parameters (temperature, max tokens)
-5. Click **Test Connection** to verify
-
-For maximum privacy, use **Ollama** with local models at `http://localhost:11434`. No API key or external calls required.
-
-### Inline AI Assessment
-
-Every finding card includes an **AI Assess** button that sends the finding context to the configured LLM for detailed analysis, including exploitability, impact, and specific remediation steps.
-
-![AI Assess](docs/screenshots/ai-assess.png)
-
-### AI Partner Chat
-
-The AI Partner is a chat interface with full context of the current scan. Click the **AI Partner** button in the header to open it. Quick action buttons provide one-click access to common analysis tasks: Summarize, Top Risks, PoC, Remediation, and Chains.
-
-![AI Partner](docs/screenshots/ai-partner.png)
-
-### Additional AI Capabilities
-
-- **AI Assess All** for bulk analysis of all findings simultaneously
-- **Report enhancement** with executive summaries and remediation plans
-- **15 pre-built prompt templates** covering OWASP analysis, compliance checks, attack surface mapping, and more
-- **Custom prompts** for specialized analysis
-- **Auto-rule generation** from natural language descriptions
-- **PoC generation** with attack chain analysis
-- **Risk scoring** with exploitability and business impact assessment
-- **Streaming responses** for real-time output
-
-
-## MCP Server for Claude Code
-
-Origami includes a Model Context Protocol server that exposes scan findings to Claude Code for AI-assisted security analysis. Configure the WebSocket bridge in Settings under **MCP Bridge (Claude Code)**.
-
-![MCP Bridge Settings](docs/screenshots/mcp-settings.png)
-
-### Setup
-
-```bash
-cd mcp-server
-./setup.sh
-```
-
-This installs the MCP server and registers it with Claude Code.
-
-### Available Tools (18 total)
-
-`get_connection_status`, `scan_page`, `get_findings_summary`, `get_findings_by_category`, `get_finding_detail`, `get_security_score`, `get_technologies`, `check_cves`, `get_attack_chains`, `assess_risk`, `generate_poc`, `override_severity`, `send_request`, `get_session_analysis`, `get_auth_flows`, `get_graphql_schema`, `export_report`, `get_page_info`
-
-All tool responses include hallucination-resistant data boundaries. The MCP server uses a WebSocket bridge (`ws://127.0.0.1:9340`) for real-time communication between the extension and Claude Code. The bridge token is configured in Settings.
