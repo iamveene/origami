@@ -4,6 +4,10 @@
 (function() {
   'use strict';
 
+  // Guard against double-injection
+  if (window.__origamiPluginLoaderLoaded) return;
+  window.__origamiPluginLoaderLoaded = true;
+
   const STORAGE_KEY = 'origami_plugins';
 
   // Initialize the global plugin registry

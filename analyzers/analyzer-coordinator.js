@@ -1,6 +1,12 @@
 // Origami Analyzer Coordinator
 // Coordinates running all security analyzers and collecting results
 
+// Guard against double-injection (re-injection via _ensureContentScripts or extension reload)
+if (window.__origamiCoordinatorLoaded) {
+  // Already loaded -- skip re-initialization to prevent duplicate listeners
+} else {
+window.__origamiCoordinatorLoaded = true;
+
 // Report scan progress to popup via chrome.runtime messaging
 function reportProgress(phase, step, totalSteps) {
   try {
@@ -483,4 +489,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Will respond asynchronously
   }
 });
+
+} // end double-injection guard
 
