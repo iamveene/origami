@@ -2255,72 +2255,79 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const results = request.results || null;
     const url = request.url || sender.url;
     const tabId = sender.tab?.id;
-    
+
     console.log('Origami Background: securityAnalysisComplete received', {
       hasResults: !!results,
       tabId: tabId,
       resultKeys: results ? Object.keys(results) : null
     });
-    
+
     if (tabId && results) {
       console.log('Origami Background: Storing security results for tab', tabId, results);
 
-      chrome.storage.sync.get(['settings'], async (data) => {
-        const settings = data.settings || DEFAULT_SETTINGS;
-
-        // Merge cached AI assessments from previous visits
-        if (url) {
-          try {
-            const domain = new URL(url).hostname;
-            tabDomains.set(tabId, domain);
-            const aiCache = await loadAIAssessmentCache(domain);
-            if (Object.keys(aiCache).length > 0) {
-              let merged = 0;
-              for (const [category, items] of Object.entries(results)) {
-                if (Array.isArray(items)) {
-                  items.forEach(f => {
-                    const fp = findingFingerprint(f, category);
-                    const cached = aiCache[fp];
-                    if (cached && !f.aiAssessment) {
-                      f.aiAssessment = cached.aiAssessment;
-                      if (cached.severityOverride && !f.severityOverride) {
-                        f.severityOverride = cached.severityOverride;
-                      }
-                      merged++;
-                    }
-                  });
-                }
-              }
-              if (merged > 0) console.log(`Origami: Merged ${merged} cached AI assessments into security results`);
-            }
-          } catch (e) { /* ignore URL parse errors */ }
-        }
-
-        // Save results
-        await saveTabSecurityResults(tabId, results);
-        console.log('Origami Background: Security results saved for tab', tabId);
-        
-        // Update badge with both secret findings and security findings
-        const secretFindings = await loadTabFindings(tabId);
-        await updateBadge(tabId, secretFindings, settings, results);
-
-        // Notify popup that results are ready
+      // Use async/await throughout to prevent SW termination before storage writes complete
+      (async () => {
         try {
-          chrome.runtime.sendMessage({
-            action: 'securityAnalysisReady',
-            tabId: tabId
-          });
-        } catch (e) {
-          // Popup may not be open
-        }
+          const data = await chrome.storage.sync.get(['settings']);
+          const settings = data.settings || DEFAULT_SETTINGS;
 
-        sendResponse({ success: true });
-      });
+          // Merge cached AI assessments from previous visits
+          if (url) {
+            try {
+              const domain = new URL(url).hostname;
+              tabDomains.set(tabId, domain);
+              const aiCache = await loadAIAssessmentCache(domain);
+              if (Object.keys(aiCache).length > 0) {
+                let merged = 0;
+                for (const [category, items] of Object.entries(results)) {
+                  if (Array.isArray(items)) {
+                    items.forEach(f => {
+                      const fp = findingFingerprint(f, category);
+                      const cached = aiCache[fp];
+                      if (cached && !f.aiAssessment) {
+                        f.aiAssessment = cached.aiAssessment;
+                        if (cached.severityOverride && !f.severityOverride) {
+                          f.severityOverride = cached.severityOverride;
+                        }
+                        merged++;
+                      }
+                    });
+                  }
+                }
+                if (merged > 0) console.log(`Origami: Merged ${merged} cached AI assessments into security results`);
+              }
+            } catch (e) { /* ignore URL parse errors */ }
+          }
+
+          // Save results
+          await saveTabSecurityResults(tabId, results);
+          console.log('Origami Background: Security results saved for tab', tabId);
+
+          // Update badge with both secret findings and security findings
+          const secretFindings = await loadTabFindings(tabId);
+          await updateBadge(tabId, secretFindings, settings, results);
+
+          // Notify popup that results are ready
+          try {
+            chrome.runtime.sendMessage({
+              action: 'securityAnalysisReady',
+              tabId: tabId
+            });
+          } catch (e) {
+            // Popup may not be open
+          }
+
+          sendResponse({ success: true });
+        } catch (e) {
+          console.error('Origami Background: securityAnalysisComplete error:', e.message);
+          sendResponse({ success: false });
+        }
+      })();
     } else {
       console.log('Origami Background: Cannot store - missing tabId or results');
       sendResponse({ success: false });
     }
-    
+
     return true; // Keep channel open for async response
   } else if (request.action === 'getTabSecurityResults') {
     // Retrieve security analysis results for a tab
