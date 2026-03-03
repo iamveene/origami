@@ -138,7 +138,7 @@ AI-powered risk scoring in Attack Lab > Intent. Evaluates all findings on four d
 
 ## Attack Lab
 
-The Attack Lab provides tools for analyzing, chaining, and exploiting findings. It contains five sub-tabs.
+The Attack Lab provides tools for analyzing, chaining, and exploiting findings. It contains six sub-tabs.
 
 ![Attack Lab](docs/screenshots/attack-lab-tab.png)
 
@@ -177,6 +177,19 @@ AI-powered intent analysis engine for assessing the risk posture of detected fin
 Cookie manipulation and analysis tools for testing cookie-based attack vectors.
 
 ![Cookie Tools](docs/screenshots/attack-lab-cookies.png)
+
+### SQLi Tester
+
+Browser-based SQL injection testing engine modeled after sqlmap's detection methodology. Runs entirely through the service worker -- no external tools or proxies needed.
+
+- **8-phase detection pipeline** -- heuristic probing, boolean-based blind (AND/OR, numeric and string variants), error-based (database-specific signatures), time-based blind, UNION column enumeration, and stacked queries
+- **5 DBMS targets** -- MySQL, PostgreSQL, MSSQL, Oracle, SQLite with database-specific payloads and error signatures
+- **Flexible input** -- enter a URL with query parameters, import a cURL command, or load a request from Repeater History
+- **POST body support** -- test parameters in form data and JSON bodies alongside URL query parameters
+- **Configurable risk and techniques** -- select which injection techniques to run (Boolean, Error, Time, UNION, Stacked) and risk level (1-3)
+- **AI-assisted mode** -- enable the AI checkbox to let an LLM partner autonomously plan and execute injection strategies, interpret results, and escalate through detection phases with optional user guidance
+- **Confirmed findings** -- confirmed vulnerabilities inject into the Security tab's vulnerability results with full evidence (payload, response snippet, detection method)
+- **Action buttons** -- confirmed findings include direct handover to Repeater (pre-filled with the vulnerable request) and AI Partner (pre-loaded with injection context)
 
 
 ## MCP Server for Claude Code

@@ -96,6 +96,7 @@ Every page load triggers a full 18-stage analysis pipeline:
 
 ### Active Testing
 
+- **SQL injection tester** -- 8-phase detection engine (heuristic, boolean, error-based, time-based, UNION, stacked queries) across MySQL, PostgreSQL, MSSQL, Oracle, and SQLite, with AI-assisted autonomous testing mode
 - **HTTP Repeater** -- craft requests with cURL import/export, bypassing CORS via the service worker
 - **Directory scanner** -- brute force with ~500-path wordlist and custom wordlist support
 - **Web crawler** -- BFS discovery (depth 1-5, concurrency up to 50) with login page detection
@@ -203,6 +204,7 @@ Manifest V3 extension. No build step, no transpilation, no package manager.
 | `webNavigation` | Intercept OAuth and SAML authentication flows |
 | `downloads` | Export reports and findings |
 | `alarms` | Schedule periodic background tasks |
+| `debugger` | Capture HTTP request/response pairs for history and analysis |
 | `<all_urls>` | Scan JavaScript files and run analyzers on any website |
 
 
