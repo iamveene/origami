@@ -4,6 +4,28 @@
 // MCP Bridge: must be imported at top-level for MV3 service worker compatibility
 importScripts('mcp-bridge.js');
 
+// MV3 Service Worker Keepalive — prevents termination during long-running LLM fetches.
+// Uses ref counting so concurrent calls share a single interval timer.
+const _swKeepalive = {
+  refCount: 0,
+  intervalId: null,
+  start() {
+    this.refCount++;
+    if (this.intervalId) return; // already ticking
+    console.log('Origami SW Keepalive: activated');
+    this.intervalId = setInterval(() => {
+      chrome.runtime.getPlatformInfo(() => { /* no-op ping to reset SW idle timer */ });
+    }, 20000);
+  },
+  stop() {
+    this.refCount = Math.max(0, this.refCount - 1);
+    if (this.refCount > 0 || !this.intervalId) return; // other callers still active
+    clearInterval(this.intervalId);
+    this.intervalId = null;
+    console.log('Origami SW Keepalive: deactivated');
+  }
+};
+
 // Reusable LLM call function — used by the llmAnalyze message handler and mcp-bridge.js
 // Returns { success, data, error } without using sendResponse, so any context can call it.
 async function _backgroundLlmAnalyze(prompt, systemPrompt, options) {
@@ -103,6 +125,8 @@ async function _backgroundLlmAnalyze(prompt, systemPrompt, options) {
     fetchOptions.referrer = '';
   }
 
+  // Activate SW keepalive to prevent MV3 service worker termination during LLM fetch
+  _swKeepalive.start();
   try {
     const response = await fetch(fetchEndpoint, fetchOptions);
     clearTimeout(timeoutId);
@@ -123,6 +147,8 @@ async function _backgroundLlmAnalyze(prompt, systemPrompt, options) {
       return { success: false, error: 'LLM request timed out after 120 seconds' };
     }
     return { success: false, error: 'LLM request failed: ' + error.message };
+  } finally {
+    _swKeepalive.stop();
   }
 }
 
