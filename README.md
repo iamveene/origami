@@ -110,6 +110,12 @@ Chain correlation, drag-and-drop workbench, PoC generator, intent scoring.
 
 ![MCP Bridge Settings](docs/screenshots/mcp-settings.png)
 
+### API Key Testing
+
+Test discovered API keys against 27 Google services to validate permissions and discover infrastructure.
+
+![API Testing Results](docs/screenshots/api-testing-results.png)
+
 For all features and screenshots, see [USAGE.md](USAGE.md).
 
 
