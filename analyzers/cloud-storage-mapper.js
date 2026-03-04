@@ -5,6 +5,7 @@ class CloudStorageMapper {
   constructor() {
     this.findings = { buckets: [], issues: [] };
     this._seenUrls = new Set();
+    this._seenBuckets = new Map();
 
     this._patterns = {
       aws: [
@@ -90,6 +91,7 @@ class CloudStorageMapper {
   async analyze() {
     this.findings = { buckets: [], issues: [] };
     this._seenUrls = new Set();
+    this._seenBuckets = new Map();
 
     try {
       this._scanPageContent();
@@ -350,6 +352,7 @@ class CloudStorageMapper {
         provider: bucket.provider,
         bucketName: bucket.bucketName,
         url: bucket.url,
+        urls: bucket.urls || [bucket.url],
         foundIn: bucket.foundIn,
         accessibility: bucket.accessibility,
         nameSensitivity: sensitivity
@@ -508,29 +511,44 @@ class CloudStorageMapper {
   }
 
   _addBucket(provider, bucketName, url, foundIn) {
-    // Normalize URL for deduplication
+    // Skip exact-URL duplicates (perf optimization)
     const normalizedUrl = url.replace(/^https?:\/\//i, '').replace(/\/+$/, '').toLowerCase();
-
     if (this._seenUrls.has(normalizedUrl)) {
-      // Update foundIn if this is a new source for an existing bucket
-      const existing = this.findings.buckets.find(
-        b => b.url.replace(/^https?:\/\//i, '').replace(/\/+$/, '').toLowerCase() === normalizedUrl
-      );
+      // Still merge foundIn source into existing bucket entry
+      const bucketKey = `${provider}:${bucketName.toLowerCase()}`;
+      const existing = this._seenBuckets.get(bucketKey);
       if (existing && !existing.foundIn.includes(foundIn)) {
         existing.foundIn.push(foundIn);
       }
       return;
     }
-
     this._seenUrls.add(normalizedUrl);
 
-    this.findings.buckets.push({
+    // Deduplicate by bucket identity (provider + bucket name)
+    const bucketKey = `${provider}:${bucketName.toLowerCase()}`;
+    const existing = this._seenBuckets.get(bucketKey);
+
+    if (existing) {
+      if (!existing.urls.includes(url)) {
+        existing.urls.push(url);
+      }
+      if (!existing.foundIn.includes(foundIn)) {
+        existing.foundIn.push(foundIn);
+      }
+      return;
+    }
+
+    const entry = {
       provider: provider,
       bucketName: bucketName,
       url: url,
+      urls: [url],
       foundIn: [foundIn],
       accessibility: 'untested'
-    });
+    };
+
+    this._seenBuckets.set(bucketKey, entry);
+    this.findings.buckets.push(entry);
   }
 }
 
