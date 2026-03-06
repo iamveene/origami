@@ -4594,36 +4594,6 @@ input:checked + .toggle-slider:before {
 .diff-summary .removed-count { color: var(--critical-color); }
 .diff-summary .changed-count { color: var(--medium-color); }
 
-/* --- PoC Generator Styles --- */
-.poc-tier-tabs {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-.poc-tier-tab-btn {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.poc-tier-tab-btn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.poc-tier-tab-btn.active {
-  background: var(--purple-primary);
-  border-color: var(--purple-secondary);
-  color: white;
-}
-
 .poc-output {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -5459,30 +5429,6 @@ input:checked + .toggle-slider:before {
   color: var(--purple-accent);
   border-bottom-color: var(--purple-accent);
   background: var(--bg-primary);
-}
-
-/* --- PoC Tier Buttons --- */
-.poc-tier-btn {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.poc-tier-btn:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.poc-tier-btn.active {
-  background: var(--purple-primary);
-  border-color: var(--purple-secondary);
-  color: white;
 }
 
 /* --- Templates Tab Layout --- */

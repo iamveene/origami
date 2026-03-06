@@ -233,7 +233,7 @@ class ContextBuilder {
     let tools = 'Tools:\n';
     if (isExploiter) {
       tools += '- send_http_request: Send an HTTP request and return status, timing, and body (first 8KB). Primary tool for exploitation, SQLi, and data extraction. Params: {"url": "<full url>", "method": "GET|POST", "headers": {}, "body": "<optional>"}\n';
-      tools += '- generate_poc: Generate a tiered PoC for a finding. Params: {"category": "<category>", "index": <number>}\n';
+      tools += '- generate_poc: Generate a PoC for a finding. Params: {"category": "<category>", "index": <number>}\n';
       tools += '- get_findings_summary: Get an overview of all findings by category and severity. No params.\n';
       tools += '- get_findings_by_category: Get detailed findings for a category. Params: {"category": "headers|cookies|vulnerabilities|secrets|sensitiveFiles|session|technologies"}\n';
       tools += '- get_finding_detail: Get full detail for a specific finding. Params: {"category": "<category>", "index": <number>}\n';
@@ -247,7 +247,7 @@ class ContextBuilder {
       tools += '- get_finding_detail: Get full detail for a specific finding. Params: {"category": "<category>", "index": <number>}\n';
       tools += '- assess_risk: Run AI risk scoring on all findings via the Intent Engine. No params.\n';
       tools += '- get_security_score: Get the security score breakdown. No params.\n';
-      tools += '- generate_poc: Generate a tiered PoC for a finding. Params: {"category": "<category>", "index": <number>}\n';
+      tools += '- generate_poc: Generate a PoC for a finding. Params: {"category": "<category>", "index": <number>}\n';
       tools += '- run_scan: Trigger a new Origami scan on the current page. No params.\n';
       tools += '- analyze_code: Security review of a code block. Params: {"code": "<code>", "language": "<language>"}\n';
       tools += '- get_technologies: Get detected technologies and versions. No params.\n';

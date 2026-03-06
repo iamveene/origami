@@ -106,7 +106,7 @@ class ChatTools {
 
     generate_poc: {
       name: 'generate_poc',
-      description: 'Generate a tiered proof-of-concept exploit for a specific finding.',
+      description: 'Generate a proof-of-concept for a specific finding.',
       params: [
         { name: 'category', type: 'string', description: 'Category name' },
         { name: 'index', type: 'number', description: 'Finding index (1-based)' }
@@ -152,7 +152,7 @@ class ChatTools {
 
           const result = await generator.generate(finding, pocContext);
           return 'PoC generated for ' + (finding.check || finding.type || 'finding') + ':\n' +
-            JSON.stringify(result.tiers, null, 2);
+            JSON.stringify(result.poc, null, 2);
         } catch (e) {
           console.error('Origami: generate_poc tool error:', e);
           return 'PoC generation failed: ' + e.message;

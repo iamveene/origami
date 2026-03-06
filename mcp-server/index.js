@@ -282,7 +282,7 @@ server.tool(
 // 11. Generate PoC
 server.tool(
   'generate_poc',
-  'Generate a tiered proof-of-concept exploit for a specific finding. 3 tiers: Basic (payload), Intermediate (bypass techniques), Advanced (full exploitation chain). CSP-aware and technology-specific. IMPORTANT: PoC is based on the specific finding data. Verify payloads in authorized testing contexts before reporting.',
+  'Generate a proof-of-concept for a specific finding. Returns a single focused PoC with payload, explanation, impact assessment, and remediation guidance. CSP-aware and technology-specific. IMPORTANT: PoC is based on the specific finding data. Verify payloads in authorized testing contexts before reporting.',
   {
     category: z.string().describe('Category of the finding'),
     index: z.number().int().min(1).describe('1-based index of the finding'),
