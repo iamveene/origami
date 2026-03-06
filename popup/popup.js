@@ -4453,7 +4453,8 @@ async function testGoogleAPIKey(apiKey) {
     console.log('Origami: Testing services:', selectedServices);
 
     // Run validation with selected services
-    const validator = new GoogleAPIValidator(apiKey);
+    const tab = await getTargetTab();
+    const validator = new GoogleAPIValidator(apiKey, tab?.url || null);
     const discoveredProjects = googleApiSettings?.discoveredProjects || [];
     const results = await validator.runSelectedTests(selectedServices, discoveredProjects);
 
@@ -4485,31 +4486,41 @@ async function testGoogleAPIKey(apiKey) {
 function displayAPIValidationResults(results, apiKey) {
   const body = document.getElementById('apiValidationBody');
   
-  // Count enabled APIs
-  const enabledCount = results.filter(r => r.status.includes('ENABLED')).length;
+  // Classify results
+  const workingCount = results.filter(r => r.status === 'ENABLED').length;
   const totalCount = results.length;
-  
+
+  function getApiStatusOrder(status) {
+    if (status === 'ENABLED') return 0;
+    if (status.includes('ENABLED')) return 1;
+    if (status === 'DISABLED') return 2;
+    if (status === 'SKIPPED') return 3;
+    return 4;
+  }
+
+  function getApiStatusClass(status) {
+    if (status === 'ENABLED') return 'enabled';
+    if (status.includes('ENABLED')) return 'restricted';
+    if (status === 'DISABLED') return 'disabled';
+    if (status === 'SKIPPED') return 'skipped';
+    return 'error';
+  }
+
   // Build HTML
   let html = `
     <div class="api-validation-summary">
       <h4>API Key: ${escapeHtml(apiKey.slice(0, 10))}...${escapeHtml(apiKey.slice(-6))}</h4>
-      <div class="api-validation-count">${enabledCount} / ${totalCount}</div>
+      <div class="api-validation-count">${workingCount} / ${totalCount}</div>
       <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
-        APIs Enabled
+        APIs Working
       </div>
     </div>
   `;
-  
-  // Sort: ENABLED first, then DISABLED, then errors
-  const sortedResults = [...results].sort((a, b) => {
-    const aOrder = a.status.includes('ENABLED') ? 0 : (a.status === 'DISABLED' ? 1 : 2);
-    const bOrder = b.status.includes('ENABLED') ? 0 : (b.status === 'DISABLED' ? 1 : 2);
-    return aOrder - bOrder;
-  });
+
+  const sortedResults = [...results].sort((a, b) => getApiStatusOrder(a.status) - getApiStatusOrder(b.status));
 
   sortedResults.forEach(result => {
-    const statusClass = result.status.includes('ENABLED') ? 'enabled' :
-                       result.status === 'DISABLED' ? 'disabled' : 'error';
+    const statusClass = getApiStatusClass(result.status);
 
     html += `
       <div class="api-result-item ${statusClass}">
@@ -8029,16 +8040,15 @@ async function runGoogleAPITests() {
   chrome.runtime.sendMessage({ action: 'getGoogleApiTestingSettings' }, async settingsResponse => {
     const discoveredProjects = settingsResponse?.googleApiTesting?.discoveredProjects || [];
 
-    // Initialize validator
-    const validator = new GoogleAPIValidator(apiKey);
+    // Initialize validator with target page referer
+    const tab = await getTargetTab();
+    const validator = new GoogleAPIValidator(apiKey, tab?.url || null);
 
     // If any firebase services are selected, fetch Firebase configs for projectId
     const firebaseServices = ['firebase-auth', 'firebase-realtime-db', 'firebase-firestore', 'firebase-storage'];
     const hasFirebaseTests = selectedServices.some(s => firebaseServices.includes(s));
 
     if (hasFirebaseTests) {
-      // Get current tab to fetch Firebase configs
-      const tab = await getTargetTab();
       if (tab?.id) {
         const configResponse = await new Promise(resolve => {
           chrome.runtime.sendMessage({ action: 'getFirebaseConfigs', tabId: tab.id }, resolve);
@@ -8107,26 +8117,29 @@ function displayTestResults(results) {
 
   resultsContainer.innerHTML = '';
 
-  // Sort: ENABLED first, then DISABLED/SKIPPED, then errors
-  const sortedResults = [...results].sort((a, b) => {
-    const aOrder = (a.status === 'ENABLED' || a.status.includes('ENABLED')) ? 0
-      : (a.status === 'DISABLED' || a.status === 'SKIPPED') ? 1 : 2;
-    const bOrder = (b.status === 'ENABLED' || b.status.includes('ENABLED')) ? 0
-      : (b.status === 'DISABLED' || b.status === 'SKIPPED') ? 1 : 2;
-    return aOrder - bOrder;
-  });
+  function getApiStatusOrder(status) {
+    if (status === 'ENABLED') return 0;
+    if (status.includes('ENABLED')) return 1;
+    if (status === 'DISABLED') return 2;
+    if (status === 'SKIPPED') return 3;
+    return 4;
+  }
+
+  function getApiStatusClass(status) {
+    if (status === 'ENABLED') return 'enabled';
+    if (status.includes('ENABLED')) return 'restricted';
+    if (status === 'DISABLED') return 'disabled';
+    if (status === 'SKIPPED') return 'skipped';
+    return 'error';
+  }
+
+  const sortedResults = [...results].sort((a, b) => getApiStatusOrder(a.status) - getApiStatusOrder(b.status));
 
   sortedResults.forEach(result => {
     const resultItem = document.createElement('div');
     resultItem.className = 'result-item';
 
-    // Determine status class
-    let statusClass = 'error';
-    if (result.status === 'ENABLED' || result.status.includes('ENABLED')) {
-      statusClass = 'enabled';
-    } else if (result.status === 'DISABLED' || result.status === 'SKIPPED') {
-      statusClass = 'disabled';
-    }
+    const statusClass = getApiStatusClass(result.status);
 
     resultItem.classList.add(statusClass);
 

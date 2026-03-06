@@ -2183,7 +2183,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     apiValidationResults.set(apiKey, {
       timestamp: new Date().toISOString(),
       results: results,
-      enabled_count: results.filter(r => r.status.includes('ENABLED')).length,
+      enabled_count: results.filter(r => r.status === 'ENABLED' || r.status === 'ENABLED (Quota Exceeded)').length,
       total_count: results.length
     });
 
@@ -2202,9 +2202,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           'Secret Manager API'
         ];
 
-        const enabledResults = results.filter(r => r.status.includes('ENABLED'));
-        const hasCriticalService = enabledResults.some(r => criticalServices.includes(r.service));
-        const hasAnyService = enabledResults.length > 0;
+        const workingResults = results.filter(r => r.status === 'ENABLED' || r.status === 'ENABLED (Quota Exceeded)');
+        const hasCriticalService = workingResults.some(r => criticalServices.includes(r.service));
+        const hasAnyService = workingResults.length > 0;
 
         if (hasCriticalService) {
           await reassessAPIKeyRisk(tabId, apiKey, 'CRITICAL',

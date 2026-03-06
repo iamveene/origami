@@ -1222,7 +1222,9 @@ Based on these findings, provide:
       // Count passed and failed tests based on status
       // Results is an array of { service, status, code, message }
       const passed = Array.isArray(results) ?
-        results.filter(r => r.status && (r.status.includes('ENABLED') || r.status.includes('200'))).length : 0;
+        results.filter(r => r.status === 'ENABLED').length : 0;
+      const restricted = Array.isArray(results) ?
+        results.filter(r => r.status && r.status.includes('ENABLED') && r.status !== 'ENABLED').length : 0;
       const failed = Array.isArray(results) ?
         results.filter(r => r.status && (r.status === 'DISABLED' || r.status === 'ERROR')).length : 0;
       const total = Array.isArray(results) ? results.length : 0;
@@ -1234,8 +1236,10 @@ Based on these findings, provide:
           ${hasError ?
             '<span class="badge medium">ERROR</span>' :
             passed > 0 ?
-              `<span class="badge critical">ACTIVE (${passed}/${total} services)</span>` :
-              '<span class="badge low">INACTIVE</span>'
+              `<span class="badge critical">ACTIVE (${passed}/${total} working${restricted > 0 ? `, ${restricted} restricted` : ''})</span>` :
+              restricted > 0 ?
+                `<span class="badge medium">RESTRICTED (${restricted}/${total} restricted)</span>` :
+                '<span class="badge low">INACTIVE</span>'
           }
         </div>
         <p><strong>Key:</strong> <code>${this.escapeHTML(testResult.apiKey.substring(0, 20))}...${this.escapeHTML(testResult.apiKey.substring(testResult.apiKey.length - 4))}</code></p>
@@ -1245,7 +1249,7 @@ Based on these findings, provide:
           `
           <details style="margin-top: 10px;">
             <summary style="cursor: pointer; font-weight: 600; color: #9333ea;">
-              ${origamiIcon('chart')} Test Results (${passed} passed, ${failed} failed, ${total} total)
+              ${origamiIcon('chart')} Test Results (${passed} working, ${restricted} restricted, ${failed} failed, ${total} total)
             </summary>
             <div style="margin-top: 12px;">
               <table style="width: 100%; border-collapse: collapse;">
@@ -1261,10 +1265,14 @@ Based on these findings, provide:
                     <tr>
                       <td style="padding: 8px; border: 1px solid #ddd;">${this.escapeHTML(result.service || 'Unknown')}</td>
                       <td style="padding: 8px; border: 1px solid #ddd;">
-                        ${result.status && (result.status.includes('ENABLED') || result.status.includes('200')) ?
+                        ${result.status === 'ENABLED' ?
                             '<span style="color: #28a745; font-weight: bold;">✓ ' + this.escapeHTML(result.status) + '</span>' :
+                          result.status && result.status.includes('ENABLED') ?
+                            '<span style="color: #fd7e14; font-weight: bold;">~ ' + this.escapeHTML(result.status) + '</span>' :
                           result.status === 'DISABLED' ?
                             '<span style="color: #6c757d;">○ ' + this.escapeHTML(result.status) + '</span>' :
+                          result.status === 'SKIPPED' ?
+                            '<span style="color: #dc3545;">- ' + this.escapeHTML(result.status) + '</span>' :
                           result.status === 'ERROR' ?
                             '<span style="color: #dc3545;">✕ ERROR</span>' :
                             '<span style="color: #aaa;">- ' + this.escapeHTML(result.status || 'Unknown') + '</span>'
@@ -1308,7 +1316,9 @@ Based on these findings, provide:
 
     // Count passed and failed tests
     const passed = Array.isArray(results) ?
-      results.filter(r => r.status && (r.status.includes('ENABLED') || r.status.includes('200'))).length : 0;
+      results.filter(r => r.status === 'ENABLED').length : 0;
+    const restricted = Array.isArray(results) ?
+      results.filter(r => r.status && r.status.includes('ENABLED') && r.status !== 'ENABLED').length : 0;
     const failed = Array.isArray(results) ?
       results.filter(r => r.status && (r.status === 'DISABLED' || r.status === 'ERROR')).length : 0;
     const total = Array.isArray(results) ? results.length : 0;
@@ -1316,7 +1326,7 @@ Based on these findings, provide:
     return `
     <details style="margin-top: 10px;">
       <summary style="cursor: pointer; font-weight: 600; color: #9333ea;">
-        ${origamiIcon('key')} API Testing Results ${hasError ? '(Error)' : passed > 0 ? `(${passed}/${total} Active)` : '(Inactive)'}
+        ${origamiIcon('key')} API Testing Results ${hasError ? '(Error)' : passed > 0 ? `(${passed}/${total} Active${restricted > 0 ? `, ${restricted} Restricted` : ''})` : restricted > 0 ? `(${restricted}/${total} Restricted)` : '(Inactive)'}
       </summary>
       <div style="background: ${hasError ? '#fff3cd' : passed > 0 ? '#ffe6e6' : '#f8f9fa'}; border-left: 4px solid ${hasError ? '#ffc107' : passed > 0 ? '#dc3545' : '#6c757d'}; padding: 12px; margin-top: 8px; border-radius: 4px;">
         ${hasError ?
@@ -1335,10 +1345,14 @@ Based on these findings, provide:
                 <tr>
                   <td style="padding: 6px; border: 1px solid #ddd; font-size: 0.85em;">${this.escapeHTML(result.service || 'Unknown')}</td>
                   <td style="padding: 6px; border: 1px solid #ddd; font-size: 0.85em;">
-                    ${result.status && (result.status.includes('ENABLED') || result.status.includes('200')) ?
+                    ${result.status === 'ENABLED' ?
                         '<span style="color: #28a745; font-weight: bold;">✓ ' + this.escapeHTML(result.status) + '</span>' :
+                      result.status && result.status.includes('ENABLED') ?
+                        '<span style="color: #fd7e14; font-weight: bold;">~ ' + this.escapeHTML(result.status) + '</span>' :
                       result.status === 'DISABLED' ?
                         '<span style="color: #6c757d;">○ ' + this.escapeHTML(result.status) + '</span>' :
+                      result.status === 'SKIPPED' ?
+                        '<span style="color: #dc3545;">- ' + this.escapeHTML(result.status) + '</span>' :
                       result.status === 'ERROR' ?
                         '<span style="color: #dc3545;">✕ ERROR</span>' :
                         '<span style="color: #aaa;">- ' + this.escapeHTML(result.status || 'Unknown') + '</span>'

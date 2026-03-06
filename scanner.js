@@ -601,6 +601,10 @@
       }
     }
 
+    if (candidates.length > 0) {
+      console.log('Origami: Firebase config candidates found:', candidates.length);
+    }
+
     const seenKeys = new Set();
     for (const body of candidates) {
       const extract = (key) => {
@@ -609,7 +613,15 @@
       };
 
       const apiKey = extract('apiKey');
-      if (!apiKey || !apiKey.startsWith('AIza') || seenKeys.has(apiKey)) continue;
+      if (!apiKey) {
+        console.log('Origami: Firebase config candidate rejected: no apiKey field found');
+        continue;
+      }
+      if (!apiKey.startsWith('AIza')) {
+        console.log('Origami: Firebase config candidate rejected: apiKey does not start with AIza:', apiKey.substring(0, 10));
+        continue;
+      }
+      if (seenKeys.has(apiKey)) continue;
       seenKeys.add(apiKey);
 
       const authDomain = extract('authDomain');

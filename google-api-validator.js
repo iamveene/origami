@@ -50,8 +50,9 @@ class GoogleAPIValidator {
       const responseText = await response.text();
 
       // Check for referer blocking
-      if (responseText.includes('API_KEY_HTTP_REFERRER_BLOCKED') || 
-          responseText.includes('Requests from referer')) {
+      if (responseText.includes('API_KEY_HTTP_REFERRER_BLOCKED') ||
+          responseText.includes('Requests from referer') ||
+          responseText.includes('did not specify any referer')) {
         return {
           service,
           status: 'ENABLED (Referer Restricted)',
@@ -89,6 +90,48 @@ class GoogleAPIValidator {
           status: 'ENABLED (Quota Exceeded)',
           code: response.status,
           message: 'API enabled but quota exceeded'
+        };
+      }
+
+      // Check for API key restriction patterns (key is valid but restricted)
+      if (responseText.includes('API_KEY_ANDROID_APP_BLOCKED')) {
+        return {
+          service,
+          status: 'ENABLED (Android Restricted)',
+          code: response.status,
+          message: 'API enabled but restricted to specific Android apps'
+        };
+      }
+
+      if (responseText.includes('API_KEY_IOS_APP_BLOCKED')) {
+        return {
+          service,
+          status: 'ENABLED (iOS Restricted)',
+          code: response.status,
+          message: 'API enabled but restricted to specific iOS apps'
+        };
+      }
+
+      if (responseText.includes('API_KEY_IP_ADDRESS_BLOCKED') ||
+          responseText.includes('ipDeniedByGfe') ||
+          responseText.includes('IP address is blocked')) {
+        return {
+          service,
+          status: 'ENABLED (IP Restricted)',
+          code: response.status,
+          message: 'API enabled but restricted to specific IP addresses'
+        };
+      }
+
+      if (responseText.includes('accessNotConfigured') ||
+          responseText.includes('has not been used in project') ||
+          responseText.includes('it is disabled') ||
+          responseText.includes('is not activated')) {
+        return {
+          service,
+          status: 'ENABLED (API Not Activated)',
+          code: response.status,
+          message: 'API key valid but this specific API is not enabled for the project'
         };
       }
 
@@ -197,7 +240,34 @@ class GoogleAPIValidator {
           message: 'API enabled (anonymous auth may be disabled)', impact: 'HIGH', cost: 'LOW' };
       }
 
-      const errorMsg = data.error?.message || 'API key not valid for Identity Toolkit';
+      // Check for restriction patterns in Firebase Auth error
+      const errorRaw = data.error?.message || '';
+      if (errorRaw.includes('API_KEY_HTTP_REFERRER_BLOCKED') || errorRaw.includes('Requests from referer')) {
+        return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED (Referer Restricted)', code: response.status,
+          message: 'API enabled but blocked by HTTP referer restriction', impact: 'LOW', cost: 'LOW' };
+      }
+      if (errorRaw.includes('API_KEY_ANDROID_APP_BLOCKED')) {
+        return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED (Android Restricted)', code: response.status,
+          message: 'API enabled but restricted to specific Android apps', impact: 'LOW', cost: 'LOW' };
+      }
+      if (errorRaw.includes('API_KEY_IOS_APP_BLOCKED')) {
+        return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED (iOS Restricted)', code: response.status,
+          message: 'API enabled but restricted to specific iOS apps', impact: 'LOW', cost: 'LOW' };
+      }
+      if (errorRaw.includes('API_KEY_IP_ADDRESS_BLOCKED') || errorRaw.includes('ipDeniedByGfe')) {
+        return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED (IP Restricted)', code: response.status,
+          message: 'API enabled but restricted to specific IP addresses', impact: 'LOW', cost: 'LOW' };
+      }
+      if (errorRaw.includes('has not been used in project') || errorRaw.includes('it is disabled') || errorRaw.includes('accessNotConfigured')) {
+        if (!this._extractedProjectNumber) {
+          const projectMatch = String(errorRaw).match(/project\s+(\d{6,})\b/);
+          if (projectMatch) this._extractedProjectNumber = projectMatch[1];
+        }
+        return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED (API Not Activated)', code: response.status,
+          message: 'API key valid but Identity Toolkit is not enabled for the project', impact: 'LOW', cost: 'LOW' };
+      }
+
+      const errorMsg = errorRaw || 'API key not valid for Identity Toolkit';
       if (!this._extractedProjectNumber) {
         const projectMatch = String(errorMsg).match(/project\s+(\d{6,})\b/);
         if (projectMatch) this._extractedProjectNumber = projectMatch[1];
