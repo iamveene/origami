@@ -11701,16 +11701,11 @@ function setupPoCGenerator() {
     generateBtn.addEventListener('click', generatePoC);
   }
 
-  // Tier tab switching
-  setupPoCTierTabs();
-
   // Restore persisted PoC result
   loadFeatureState('poc_result', (data) => {
-    if (data && data.tiers) {
+    if (data && data.poc) {
       currentPocResult = data;
-      const activeTier = document.querySelector('.poc-tier-btn.active');
-      const tier = activeTier ? activeTier.dataset.pocTier : 'basic';
-      renderPoCTierOutput(tier);
+      renderPoCOutput();
     }
   });
 }
@@ -11763,30 +11758,16 @@ function populatePoCFindingSelect() {
   }
 }
 
-function setupPoCTierTabs() {
-  const tierBtns = document.querySelectorAll('.poc-tier-btn');
-  tierBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      tierBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const tier = btn.dataset.pocTier;
-      renderPoCTierOutput(tier);
-    });
-  });
-}
-
-function renderPoCTierOutput(tier) {
+function renderPoCOutput() {
   const container = document.getElementById('pocOutputContainer');
   if (!container || !currentPocResult) return;
 
-  const tiers = currentPocResult.tiers || [];
-  const tierData = tiers.find(t => t.level === tier);
-
-  if (!tierData || (!tierData.payload && !tierData.explanation)) {
+  const poc = currentPocResult.poc;
+  if (!poc || (!poc.payload && !poc.explanation)) {
     container.innerHTML = `
       <div class="empty-state">
-        <p>No ${tier} tier PoC available.</p>
-        <p class="empty-hint">The LLM may not have generated content for this tier.</p>
+        <p>No PoC available.</p>
+        <p class="empty-hint">The LLM may not have generated content for this finding.</p>
       </div>
     `;
     return;
@@ -11797,37 +11778,37 @@ function renderPoCTierOutput(tier) {
   html += `<div class="poc-tier-content" style="padding: 8px 0;">`;
 
   // Payload
-  if (tierData.payload) {
+  if (poc.payload) {
     html += `<div style="margin-bottom: 12px;">`;
     html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">`;
     html += `<strong>Payload:</strong>`;
-    html += `<button class="btn btn-secondary btn-sm poc-copy-btn" data-copy-target="poc-payload-${tier}" style="font-size: 11px; padding: 2px 8px;">Copy</button>`;
+    html += `<button class="btn btn-secondary btn-sm poc-copy-btn" data-copy-target="poc-payload" style="font-size: 11px; padding: 2px 8px;">Copy</button>`;
     html += `</div>`;
-    html += `<pre id="poc-payload-${tier}" style="background: var(--bg-secondary); padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; white-space: pre-wrap;"><code>${escapeHtml(tierData.payload)}</code></pre>`;
+    html += `<pre id="poc-payload" style="background: var(--bg-secondary); padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; white-space: pre-wrap;"><code>${escapeHtml(poc.payload)}</code></pre>`;
     html += `</div>`;
   }
 
   // Explanation
-  if (tierData.explanation) {
+  if (poc.explanation) {
     html += `<div style="margin-bottom: 12px;">`;
     html += `<strong>Explanation:</strong>`;
-    html += `<div class="ai-assessment-content" style="margin-top: 4px;">${formatAIAssessment(tierData.explanation)}</div>`;
+    html += `<div class="ai-assessment-content" style="margin-top: 4px;">${formatAIAssessment(poc.explanation)}</div>`;
     html += `</div>`;
   }
 
-  // Prerequisites
-  if (tierData.prerequisites) {
+  // Impact
+  if (poc.impact) {
     html += `<div style="margin-bottom: 12px;">`;
-    html += `<strong>Prerequisites:</strong>`;
-    html += `<div style="margin-top: 4px; font-size: 12px; color: var(--text-secondary);">${escapeHtml(tierData.prerequisites)}</div>`;
+    html += `<strong>Impact:</strong>`;
+    html += `<div style="margin-top: 4px; font-size: 12px;">${escapeHtml(poc.impact)}</div>`;
     html += `</div>`;
   }
 
-  // Risk
-  if (tierData.risk) {
+  // Remediation
+  if (poc.remediation) {
     html += `<div style="margin-bottom: 8px;">`;
-    html += `<strong>Risk Assessment:</strong>`;
-    html += `<div style="margin-top: 4px; font-size: 12px;">${escapeHtml(tierData.risk)}</div>`;
+    html += `<strong>Remediation:</strong>`;
+    html += `<div class="ai-assessment-content" style="margin-top: 4px;">${formatAIAssessment(poc.remediation)}</div>`;
     html += `</div>`;
   }
 
@@ -11892,7 +11873,7 @@ async function generatePoC() {
       message: f.message || '',
       matchedText: f.full_key || f.key || '',
       uri: f.source_url || f.url || '',
-      codeContext: f.context || ''
+      codeContext: f.codeContext || ''
     };
   } else if (window.currentSecurityFindings && window.currentSecurityFindings[category]) {
     finding = window.currentSecurityFindings[category][index];
@@ -11907,7 +11888,7 @@ async function generatePoC() {
     generateBtn.disabled = true;
     generateBtn.textContent = 'Generating...';
   }
-  container.innerHTML = '<div class="empty-state"><p>Generating tiered PoC exploits...</p></div>';
+  container.innerHTML = '<div class="empty-state"><p>Generating PoC...</p></div>';
 
   try {
     // Gather context
@@ -11950,10 +11931,7 @@ async function generatePoC() {
       // Persist PoC result
       saveFeatureState('poc_result', currentPocResult);
 
-      // Render the active tier
-      const activeTier = document.querySelector('.poc-tier-btn.active');
-      const tier = activeTier ? activeTier.dataset.pocTier : 'basic';
-      renderPoCTierOutput(tier);
+      renderPoCOutput();
     } else {
       container.innerHTML = `<div class="empty-state"><p>PoCGenerator not available.</p></div>`;
     }
