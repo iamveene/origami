@@ -407,7 +407,7 @@
               // Skip snake_case/kebab-case identifiers with 2+ segments (code identifiers, not passwords)
               if (/^[a-z][a-z0-9]*(?:[_-][a-z0-9]+){1,}$/.test(extractedVal)) return;
               // Skip if extracted value contains JS code patterns (minified code captured between quotes)
-              if (/[\(\)\{\}].*[\(\)\{\}]/.test(extractedVal) && /(?:catch|try|return|function|const|let|var|throw|null|void|typeof)\b/.test(extractedVal)) return;
+              if (/[\(\)\{\}].*[\(\)\{\}]/.test(extractedVal) && (/(?:catch|try|return|function|const|let|var|throw|null|void|typeof)\b/.test(extractedVal) || /\|\||&&/.test(extractedVal))) return;
             }
 
             // Validate Google OAuth2 Refresh Token matches (P27/P30: reduce URL and minified code FPs)
