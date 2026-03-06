@@ -508,7 +508,9 @@ class MCPBridge {
     // Secrets: depends on type
     if (c === 'secrets') {
       if (/google.*(api|aizasy)/i.test(t) || /aizasy/i.test(t)) return 40; // browser-scoped, referrer-restricted
-      if (/firebase/i.test(t)) return 25; // intentionally public
+      if (/firebase.*realtime|realtime.*database|\.json.*database/i.test(t)) return 90; // just a GET request
+      if (/firebase.*auth.*anonymous|anonymous.*signup/i.test(t)) return 80; // anonymous token generation
+      if (/firebase/i.test(t)) return 25; // intentionally public config keys
       if (/aws|azure|gcp.*service/i.test(t)) return 90; // cloud credentials
       if (/private.key|rsa|ssh/i.test(t)) return 85;
       if (/password|passwd/i.test(t)) return 80;
@@ -844,7 +846,7 @@ class MCPBridge {
       calibrationNotes: [
         'Severity levels are pre-calibrated by the scanner engine. Trust them over generic security assumptions.',
         'Google API keys (AIzaSy prefix) are browser-scoped public keys restricted by HTTP referrer. MEDIUM severity max. Only escalate if API Validator confirms dangerous services (e.g., Cloud Functions, IAM).',
-        'Firebase config keys (apiKey, authDomain, projectId) are intentionally public by design. LOW severity.',
+        'Firebase config keys (apiKey, authDomain, projectId) are intentionally public by design. LOW severity. However, anonymous signup via Identity Toolkit can be chained with Realtime Database access (auth != null rules) for data exfiltration -- this chain is CRITICAL.',
         'Missing security headers are defense-in-depth issues (LOW/INFO), not directly exploitable vulnerabilities.',
         'Cookie flags (HttpOnly, Secure, SameSite) are best-practice recommendations, severity depends on cookie purpose.',
       ],

@@ -112,9 +112,15 @@ Chain correlation, drag-and-drop workbench, PoC generator, intent scoring.
 
 ### API Key Testing
 
-Test discovered API keys against 27 Google services to validate permissions and discover infrastructure.
+Test discovered API keys against 31 Google services. Firebase exploitation suite chains anonymous auth tokens with Realtime Database, Firestore, and Storage access tests.
 
 ![API Testing Results](docs/screenshots/api-testing-results.png)
+
+### Firebase Exploitation
+
+Extract Firebase configs from page scripts. Chain Identity Toolkit anonymous signup with Realtime Database, Firestore, and Storage access testing.
+
+![Firebase Exploitation](docs/screenshots/firebase-exploitation.png)
 
 For all features and screenshots, see [USAGE.md](USAGE.md).
 
@@ -147,7 +153,7 @@ Every page load triggers a full 18-stage analysis pipeline:
 - **HTTP Repeater** -- craft requests with cURL import/export, bypassing CORS via the service worker
 - **Directory scanner** -- brute force with ~500-path wordlist and custom wordlist support
 - **Web crawler** -- BFS discovery (depth 1-5, concurrency up to 50) with login page detection
-- **API key validator** -- Google API keys tested against 27 services
+- **API key validator** -- Google API keys tested against 31 services with Firebase exploitation suite (anonymous auth, Realtime DB, Firestore, Storage)
 
 ### Exploitation
 

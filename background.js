@@ -237,15 +237,19 @@ const DEFAULT_SETTINGS = {
       'compute-engine': true,
       'cloud-storage': true,
       'secret-manager': true,
-      'bigquery': true
+      'bigquery': true,
+      // Firebase Exploitation (4)
+      'firebase-realtime-db': true,
+      'firebase-firestore': true,
+      'firebase-storage': true
     },
-    // Active preset: 'custom', 'quick', 'ai-ml', 'infrastructure', 'all'
+    // Active preset: 'custom', 'quick', 'ai-ml', 'infrastructure', 'firebase', 'all'
     activePreset: 'all',
     // Discovered project IDs (persisted for reuse)
     discoveredProjects: [],
     // Cost safety settings
     skipExpensiveTests: true,
-    maxTestsPerScan: 27
+    maxTestsPerScan: 30
   },
   cve_checking: {
     enabled: true,  // Enable CVE/EOL checking by default
@@ -2057,6 +2061,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (!tabId) return;
 
+    // Store Firebase configs if extracted
+    if (request.firebaseConfigs && request.firebaseConfigs.length > 0) {
+      chrome.storage.local.set({ ['tab_firebase_configs_' + tabId]: request.firebaseConfigs });
+      console.log('Origami: Stored', request.firebaseConfigs.length, 'Firebase config(s) for tab', tabId);
+    }
+
     // Get settings and whitelist
     chrome.storage.sync.get(['settings', 'whitelist'], async (data) => {
       const settings = data.settings || DEFAULT_SETTINGS;
@@ -2233,6 +2243,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.storage.sync.get(['settings'], (data) => {
       const settings = data.settings || DEFAULT_SETTINGS;
       sendResponse({ googleApiTesting: settings.googleApiTesting || DEFAULT_SETTINGS.googleApiTesting });
+    });
+    return true; // Keep channel open for async response
+  } else if (request.action === 'getFirebaseConfigs') {
+    // Retrieve stored Firebase configs for a tab
+    const tabId = request.tabId;
+    if (!tabId) {
+      sendResponse({ firebaseConfigs: [] });
+      return;
+    }
+    chrome.storage.local.get(['tab_firebase_configs_' + tabId], (data) => {
+      sendResponse({ firebaseConfigs: data['tab_firebase_configs_' + tabId] || [] });
     });
     return true; // Keep channel open for async response
   } else if (request.action === 'saveDiscoveredProjects') {

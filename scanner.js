@@ -582,16 +582,82 @@
     }
   }
 
+  // Extract Firebase configuration objects from JavaScript text
+  function extractFirebaseConfigs(text) {
+    const configs = [];
+    // Match Firebase config objects: apiKey + at least one of authDomain|databaseURL|projectId|storageBucket
+    const configPattern = /(?:firebase|fire)(?:Config|App|config|app)?\s*[:=]\s*\{([^}]{50,800})\}/gi;
+    const genericObjPattern = /\{([^}]{50,800})\}/g;
+
+    const candidates = [];
+    let match;
+    while ((match = configPattern.exec(text)) !== null) {
+      candidates.push(match[1]);
+    }
+    // Also scan generic objects that contain apiKey
+    while ((match = genericObjPattern.exec(text)) !== null) {
+      if (/apiKey\s*[:=]/.test(match[1]) && /(?:authDomain|databaseURL|projectId|storageBucket)\s*[:=]/.test(match[1])) {
+        candidates.push(match[1]);
+      }
+    }
+
+    const seenKeys = new Set();
+    for (const body of candidates) {
+      const extract = (key) => {
+        const m = body.match(new RegExp(key + '\\s*[:=]\\s*["\']([^"\']+)["\']'));
+        return m ? m[1] : null;
+      };
+
+      const apiKey = extract('apiKey');
+      if (!apiKey || !apiKey.startsWith('AIza') || seenKeys.has(apiKey)) continue;
+      seenKeys.add(apiKey);
+
+      const authDomain = extract('authDomain');
+      const databaseURL = extract('databaseURL');
+      let projectId = extract('projectId');
+      const storageBucket = extract('storageBucket');
+      const messagingSenderId = extract('messagingSenderId');
+      const appId = extract('appId');
+
+      // Derive projectId from authDomain if missing
+      if (!projectId && authDomain) {
+        projectId = authDomain.replace('.firebaseapp.com', '');
+      }
+
+      // Derive databaseURL from projectId if missing
+      const derivedDatabaseURL = databaseURL || (projectId ? `https://${projectId}-default-rtdb.firebaseio.com` : null);
+
+      configs.push({
+        apiKey,
+        authDomain: authDomain || null,
+        databaseURL: derivedDatabaseURL,
+        projectId: projectId || null,
+        storageBucket: storageBucket || null,
+        messagingSenderId: messagingSenderId || null,
+        appId: appId || null
+      });
+    }
+
+    return configs;
+  }
+
   // Fetch and scan a JavaScript file
   async function scanJsFile(url, enabledPatterns = []) {
     if (scannedUrls.has(url)) return; // Already scanned
     scannedUrls.add(url);
-    
+
     try {
       const response = await fetch(url, { credentials: 'include' });
       if (!response.ok) return;
       const text = await response.text();
       scan(text, url, enabledPatterns);
+      // Also extract Firebase configs from external scripts
+      const configs = extractFirebaseConfigs(text);
+      configs.forEach(c => {
+        if (!firebaseConfigs.some(existing => existing.apiKey === c.apiKey)) {
+          firebaseConfigs.push(c);
+        }
+      });
     } catch (error) {
       console.debug(`Origami: Could not fetch ${url}:`, error.message);
     }
@@ -613,18 +679,33 @@
     });
   }
 
+  // Collected Firebase configs across all scanned texts
+  const firebaseConfigs = [];
+
   // Main scanning logic
   async function performScan(legacyCustomPatterns = []) {
     results.length = 0;
     seen.clear();
     scannedUrls.clear();
-    
+    firebaseConfigs.length = 0;
+
     // Load patterns from storage
     const storedPatterns = await loadEnabledPatterns();
-    
+
     // Merge with legacy custom patterns (for backward compatibility)
     const enabledPatterns = storedPatterns.length > 0 ? storedPatterns : legacyCustomPatterns;
-    
+
+    // Helper: scan text for secrets AND extract Firebase configs
+    function scanAndExtract(text, url) {
+      scan(text, url, enabledPatterns);
+      const configs = extractFirebaseConfigs(text);
+      configs.forEach(c => {
+        if (!firebaseConfigs.some(existing => existing.apiKey === c.apiKey)) {
+          firebaseConfigs.push(c);
+        }
+      });
+    }
+
     // 1. Scan inline scripts (batched to avoid blocking the main thread on large pages)
     const inlineScripts = Array.from(document.querySelectorAll('script:not([src])'));
     const batchSize = (typeof ORIGAMI_INLINE_SCRIPT_BATCH_SIZE !== 'undefined') ? ORIGAMI_INLINE_SCRIPT_BATCH_SIZE : 50;
@@ -632,7 +713,7 @@
       const batch = inlineScripts.slice(i, i + batchSize);
       batch.forEach(script => {
         if (script.textContent) {
-          scan(script.textContent, location.href + ' (inline script)', enabledPatterns);
+          scanAndExtract(script.textContent, location.href + ' (inline script)');
         }
       });
       // Yield to main thread between batches
@@ -640,11 +721,11 @@
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
-    
+
     // 2. Scan external scripts from same origin
     const externalScripts = document.querySelectorAll('script[src]');
     const scanPromises = [];
-    
+
     externalScripts.forEach(script => {
       const url = script.src;
       // Only scan same-origin scripts for security
@@ -652,13 +733,22 @@
         scanPromises.push(scanJsFile(url, enabledPatterns));
       }
     });
-    
+
     // 3. Discover and scan JS files referenced in HTML
     try {
       const htmlResponse = await fetch(location.href, { credentials: 'include' });
       const html = await htmlResponse.text();
+
+      // Also extract Firebase configs from HTML itself
+      const htmlConfigs = extractFirebaseConfigs(html);
+      htmlConfigs.forEach(c => {
+        if (!firebaseConfigs.some(existing => existing.apiKey === c.apiKey)) {
+          firebaseConfigs.push(c);
+        }
+      });
+
       const jsFileMatches = html.matchAll(/["'](\/[^"']*\.js[^"']*)["']/gi);
-      
+
       for (const match of jsFileMatches) {
         try {
           const url = new URL(match[1], location.origin).href;
@@ -672,10 +762,17 @@
     } catch (error) {
       console.debug('Origami: Could not fetch page HTML:', error.message);
     }
-    
+
     // Wait for all scans to complete
     await Promise.all(scanPromises);
-    
+
+    if (firebaseConfigs.length > 0) {
+      console.log('Origami: Extracted Firebase configs:', firebaseConfigs.map(c => ({
+        projectId: c.projectId,
+        apiKey: c.apiKey.substring(0, 8) + '****'
+      })));
+    }
+
     return results;
   }
 
@@ -716,6 +813,7 @@
         chrome.runtime.sendMessage({
           action: 'scanComplete',
           findings: findings,
+          firebaseConfigs: firebaseConfigs.length > 0 ? firebaseConfigs : undefined,
           url: location.href
         });
         

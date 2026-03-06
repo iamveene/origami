@@ -151,7 +151,7 @@ Default landing tab. 29 built-in patterns across four severity levels.
 - **CRITICAL** (5) -- AWS keys, Stripe live keys, private key headers, Azure connection strings, database URLs
 - **HIGH** (11) -- GitHub/GitLab/Slack/SendGrid tokens, Google OAuth2/Cloud keys, Vault/Terraform/Databricks tokens
 - **MEDIUM** (6) -- GCP service accounts, JWTs, generic API keys, CircleCI tokens, password assignments
-- **LOW** (2) -- Firebase configs, Datadog APP keys
+- **LOW** (2) -- Firebase configs (with automatic project ID extraction for exploitation chaining), Datadog APP keys
 
 Custom patterns in Settings. Shannon entropy filtering suppresses false positives.
 
@@ -270,9 +270,22 @@ Test discovered API keys against live services.
 
 ![API Testing](docs/screenshots/api-testing-tab.png)
 
-Google API keys are tested against 27 services. AWS and Azure support coming soon.
+Google API keys are tested against 31 services across 6 categories: Maps and Location, Data and Search, AI/ML, Infrastructure Discovery, Firebase Exploitation, and Communication.
 
 ![API Testing Results](docs/screenshots/api-testing-results.png)
+
+### Firebase Exploitation
+
+When a page contains Firebase configuration objects (apiKey, authDomain, projectId), Origami extracts the project ID and chains four tests:
+
+1. **Identity Toolkit** -- Attempts anonymous signup via `accounts:signUp`. If successful, captures the idToken for downstream tests.
+2. **Realtime Database** -- Tests `/.json` endpoint unauthenticated, then with the chained idToken. Detects the `auth != null` misconfiguration.
+3. **Cloud Firestore** -- Lists document collections via the REST API.
+4. **Firebase Storage** -- Enumerates files in the default storage bucket.
+
+Select the "Firebase Exploitation" preset to run all four tests, or pick individual services.
+
+![Firebase Exploitation](docs/screenshots/firebase-exploitation.png)
 
 
 ## Detection Templates

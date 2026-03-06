@@ -1963,7 +1963,8 @@
                 <option value="quick">Quick Test (5 APIs)</option>
                 <option value="ai-ml">AI/ML Services (7 APIs)</option>
                 <option value="infrastructure">Infrastructure Discovery (5 APIs)</option>
-                <option value="all" selected>All Services (27 APIs)</option>
+                <option value="firebase">Firebase Exploitation (4 APIs)</option>
+                <option value="all" selected>All Services (30 APIs)</option>
                 <option value="custom">Custom Selection</option>
               </select>
             </div>
@@ -2157,17 +2158,55 @@
                 </div>
               </div>
 
+              <!-- Firebase Exploitation -->
+              <div class="service-category">
+                <div class="category-header" data-category="firebase">
+                  <span class="category-icon">▼</span>
+                  <span class="category-title"> Firebase Exploitation (4)</span>
+                </div>
+                <div class="category-services collapsed" data-category="firebase">
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="firebase-auth" data-impact="CRITICAL" data-cost="LOW">
+                    <span class="service-name">Firebase Auth (Identity Toolkit)</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge cost-low">$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="firebase-realtime-db" data-impact="CRITICAL" data-cost="LOW">
+                    <span class="service-name">Realtime Database (.json)</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge cost-low">$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="firebase-firestore" data-impact="CRITICAL" data-cost="LOW">
+                    <span class="service-name">Cloud Firestore</span>
+                    <span class="service-badges">
+                      <span class="badge critical">CRITICAL</span>
+                      <span class="badge cost-low">$</span>
+                    </span>
+                  </label>
+                  <label class="service-checkbox">
+                    <input type="checkbox" data-service="firebase-storage" data-impact="HIGH" data-cost="LOW">
+                    <span class="service-name">Firebase Storage</span>
+                    <span class="service-badges">
+                      <span class="badge high">HIGH</span>
+                      <span class="badge cost-low">$</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
               <!-- Communication & Other Services -->
               <div class="service-category">
                 <div class="category-header" data-category="other">
                   <span class="category-icon">▼</span>
-                  <span class="category-title"> Communication & Other (3)</span>
+                  <span class="category-title"> Communication & Other (2)</span>
                 </div>
                 <div class="category-services collapsed" data-category="other">
-                  <label class="service-checkbox">
-                    <input type="checkbox" data-service="firebase-auth" data-impact="HIGH" data-cost="LOW">
-                    <span class="service-name">Firebase Auth (Identity Toolkit)</span>
-                  </label>
                   <label class="service-checkbox">
                     <input type="checkbox" data-service="youtube" data-impact="LOW" data-cost="LOW">
                     <span class="service-name">YouTube Data API</span>

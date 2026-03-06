@@ -3329,7 +3329,7 @@ input:checked + .toggle-slider:before {
   border-left: 3px solid var(--border-color);
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .result-item.enabled {
@@ -3378,6 +3378,61 @@ input:checked + .toggle-slider:before {
   color: var(--text-secondary);
   margin-top: 4px;
   font-style: italic;
+}
+
+.result-message code {
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-style: normal;
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+
+.result-message .badge {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.result-message .btn-sm {
+  font-size: 10px;
+  padding: 1px 6px;
+  vertical-align: middle;
+}
+
+/* Impact and access-level badges */
+.badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge.critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--critical-color);
+}
+
+.badge.high {
+  background: rgba(253, 126, 20, 0.2);
+  color: var(--high-color);
+}
+
+.badge.medium {
+  background: rgba(255, 193, 7, 0.2);
+  color: var(--medium-color);
+}
+
+.badge.low {
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--low-severity-color, #6EE7B7);
+}
+
+.badge.info {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--info-severity-color, #60A5FA);
 }
 
 /* Scan Progress Bar */

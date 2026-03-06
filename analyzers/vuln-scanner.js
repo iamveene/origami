@@ -1055,7 +1055,8 @@ class VulnerabilityScanner {
         'intercom', 'drift', 'hotjar', 'optimizely', 'pendo',
         'aws-waf', 'aws_waf', 'permutive', 'statsig', 'lngtd',
         '__tea_', '_hbs_', 'webapp-session',
-        'session-replay', 'session_replay'
+        'session-replay', 'session_replay',
+        'msal.', 'olk-', 'LokiAuthToken'
       ];
 
       for (const { store, name } of storages) {

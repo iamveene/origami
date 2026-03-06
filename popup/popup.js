@@ -7727,6 +7727,7 @@ const GOOGLE_API_PRESETS = {
   quick: ['youtube', 'geocoding', 'translation', 'books', 'fonts'],
   'ai-ml': ['vertex-ai', 'gemini', 'vision', 'speech', 'video-intelligence', 'natural-language', 'text-to-speech'],
   infrastructure: ['resource-manager', 'compute-engine', 'cloud-storage', 'secret-manager', 'bigquery'],
+  firebase: ['firebase-auth', 'firebase-realtime-db', 'firebase-firestore', 'firebase-storage'],
   all: [
     // Original APIs (15)
     'youtube', 'maps-static', 'geolocation', 'custom-search', 'firebase-auth', 'translation', 'books',
@@ -7734,7 +7735,9 @@ const GOOGLE_API_PRESETS = {
     // AI/ML APIs (7)
     'vertex-ai', 'gemini', 'vision', 'speech', 'video-intelligence', 'natural-language', 'text-to-speech',
     // Infrastructure APIs (5)
-    'resource-manager', 'compute-engine', 'cloud-storage', 'secret-manager', 'bigquery'
+    'resource-manager', 'compute-engine', 'cloud-storage', 'secret-manager', 'bigquery',
+    // Firebase Exploitation (3 + firebase-auth already above)
+    'firebase-realtime-db', 'firebase-firestore', 'firebase-storage'
   ]
 };
 
@@ -8014,12 +8017,35 @@ async function runGoogleAPITests() {
   progressDiv.style.display = 'flex';
   resultsDiv.style.display = 'none';
 
-  // Get discovered projects (if any)
+  // Get discovered projects and Firebase configs
   chrome.runtime.sendMessage({ action: 'getGoogleApiTestingSettings' }, async settingsResponse => {
     const discoveredProjects = settingsResponse?.googleApiTesting?.discoveredProjects || [];
 
     // Initialize validator
     const validator = new GoogleAPIValidator(apiKey);
+
+    // If any firebase services are selected, fetch Firebase configs for projectId
+    const firebaseServices = ['firebase-auth', 'firebase-realtime-db', 'firebase-firestore', 'firebase-storage'];
+    const hasFirebaseTests = selectedServices.some(s => firebaseServices.includes(s));
+
+    if (hasFirebaseTests) {
+      // Get current tab to fetch Firebase configs
+      const tab = await getTargetTab();
+      if (tab?.id) {
+        const configResponse = await new Promise(resolve => {
+          chrome.runtime.sendMessage({ action: 'getFirebaseConfigs', tabId: tab.id }, resolve);
+        });
+        const fbConfigs = configResponse?.firebaseConfigs || [];
+        if (fbConfigs.length > 0) {
+          // Use the first config's projectId as the Firebase project ID
+          const fbProjectId = fbConfigs[0].projectId;
+          if (fbProjectId) {
+            validator._firebaseProjectId = fbProjectId;
+            console.log('Origami: Using Firebase projectId from page config:', fbProjectId);
+          }
+        }
+      }
+    }
 
     // Run tests
     progressText.textContent = `Testing ${selectedServices.length} service(s)...`;
@@ -8100,11 +8126,40 @@ function displayTestResults(results) {
     const impactBadge = result.impact ? `<span class="badge ${result.impact.toLowerCase()}">${result.impact}</span>` : '';
     const costIndicator = result.cost ? getCostIndicator(result.cost) : '';
 
+    // Build Firebase-specific detail lines
+    let extraDetails = '';
+    if (result.projectId) {
+      extraDetails += `<div class="result-message">Project: ${escapeHtml(result.projectId)}</div>`;
+    }
+    if (result.details?.accessLevel) {
+      const accessColors = { OPEN: 'critical', AUTHENTICATED: 'high', SECURED: 'low' };
+      extraDetails += `<div class="result-message">Access: <span class="badge ${accessColors[result.details.accessLevel] || 'info'}">${escapeHtml(result.details.accessLevel)}</span></div>`;
+    }
+    if (result.details?.databaseUrl) {
+      extraDetails += `<div class="result-message" style="word-break: break-all;"><code>${escapeHtml(result.details.databaseUrl)}</code></div>`;
+    }
+    if (result.details?.topLevelKeys && result.details.topLevelKeys.length > 0) {
+      const keyTags = result.details.topLevelKeys.slice(0, 10).map(k => `<code>${escapeHtml(k)}</code>`).join(' ');
+      extraDetails += `<div class="result-message">Keys: ${keyTags}${result.details.topLevelKeys.length > 10 ? ' ...' : ''}</div>`;
+    }
+    if (result.details?.collections && result.details.collections.length > 0) {
+      const colTags = result.details.collections.slice(0, 10).map(c => `<code>${escapeHtml(c)}</code>`).join(' ');
+      extraDetails += `<div class="result-message">Collections: ${colTags}</div>`;
+    }
+    if (result.details?.sampleFiles && result.details.sampleFiles.length > 0) {
+      const fileTags = result.details.sampleFiles.map(f => `<code>${escapeHtml(f)}</code>`).join(' ');
+      extraDetails += `<div class="result-message">Files: ${fileTags}</div>`;
+    }
+    if (result.anonymousToken) {
+      const truncated = result.anonymousToken.substring(0, 20) + '...' + result.anonymousToken.substring(result.anonymousToken.length - 10);
+      extraDetails += `<div class="result-message">Token: <code>${escapeHtml(truncated)}</code> <button class="btn btn-sm copy-token-btn" style="font-size:10px;padding:1px 6px;margin-left:4px;">Copy</button></div>`;
+    }
+
     resultItem.innerHTML = `
       <div>
         <div class="result-service">${escapeHtml(result.service)}</div>
         <div class="result-message">${escapeHtml(result.message || '')}</div>
-        ${result.projectId ? `<div class="result-message">Project: ${escapeHtml(result.projectId)}</div>` : ''}
+        ${extraDetails}
       </div>
       <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
         <span class="result-status ${statusClass}">${escapeHtml(result.status)}</span>
@@ -8114,6 +8169,18 @@ function displayTestResults(results) {
     `;
 
     resultsContainer.appendChild(resultItem);
+
+    // Attach copy handler for anonymous token (avoids inline onclick injection)
+    if (result.anonymousToken) {
+      const copyBtn = resultItem.querySelector('.copy-token-btn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(result.anonymousToken);
+          copyBtn.textContent = 'Copied';
+          setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+        });
+      }
+    }
   });
 
   resultsDiv.style.display = 'block';
