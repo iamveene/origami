@@ -4,6 +4,7 @@
 class ExfiltrationDetector {
   constructor() {
     this.findings = { dataFlows: [], issues: [] };
+    this._seenIssues = new Set();
     this._credentialParams = [
       'password', 'passwd', 'pass', 'pwd', 'key', 'secret',
       'api_key', 'apikey', 'api-key', 'access_token', 'accesstoken',
@@ -39,6 +40,7 @@ class ExfiltrationDetector {
 
   async analyze() {
     this.findings = { dataFlows: [], issues: [] };
+    this._seenIssues = new Set();
 
     if (!window.origamiSensitiveDataPatterns) {
       console.warn('Origami: origamiSensitiveDataPatterns not available, PII detection disabled');
@@ -76,7 +78,10 @@ class ExfiltrationDetector {
     if (!parsed || !parsed.search) return;
 
     const hostname = parsed.hostname;
-    const classification = this._classify(hostname);
+    let classification = this._classify(hostname);
+    if (hostname === 'www.google.com' && /^\/pagead\b/.test(parsed.pathname)) {
+      classification = 'advertising';
+    }
     const isFirstParty = classification === 'first-party';
     const isAuthFlowURL = this._ssoUrlPatterns.test(parsed.pathname);
     const dataTypes = [];
@@ -111,13 +116,13 @@ class ExfiltrationDetector {
 
       this._scanValueForPII(paramValue, paramName, hostname, classification, isFirstParty, urlStr, dataTypes);
 
-      if (paramValue.length > 20 && window.origamiCalculateStringEntropy && !this._analyticsParams.has(paramLower)) {
+      if (paramValue.length > 20 && window.origamiCalculateStringEntropy && !this._analyticsParams.has(paramLower) && !/^https?:\/\//i.test(paramValue)) {
         const entropy = window.origamiCalculateStringEntropy(paramValue);
         if (entropy > 5.0) {
           dataTypes.push('high-entropy-token');
           // Suppress token-leakage for advertising/analytics domains -- high-entropy values
           // in ad/analytics URLs are click/impression correlation IDs, not secrets
-          if (!isFirstParty && classification !== 'advertising' && classification !== 'analytics') {
+          if (!isFirstParty && classification !== 'advertising' && classification !== 'analytics' && classification !== 'social') {
             this._addIssue('LOW', 'token-leakage',
               'High-entropy value (entropy: ' + entropy.toFixed(2) + ') in query param "' + paramName + '" sent to third-party',
               'CWE-200', { destination: hostname, method: 'GET', dataTypes: ['high-entropy-token'],
@@ -450,23 +455,31 @@ class ExfiltrationDetector {
       }
 
       if (hasCreds) {
-        // For CDN/analytics/advertising domains, credential-named params (apikey, auth, key)
-        // are typically public identifiers or service tokens, not secret credentials.
-        // Only flag HIGH for unknown third parties or when high-severity creds are present.
-        const credTypes = types.filter(dt => dt.startsWith('credential:'));
-        const hasHighSevCred = credTypes.some(dt => {
-          const param = dt.replace('credential:', '');
-          return this._highSeverityCreds.includes(param);
-        });
-        const knownDomain = s.classification === 'cdn' || s.classification === 'analytics' || s.classification === 'advertising';
-        const credSeverity = hasHighSevCred ? 'HIGH' : (knownDomain ? 'LOW' : 'MEDIUM');
-        this._addIssue(credSeverity, 'credentials-to-third-party',
-          'Credential data sent to third party (' + s.classification + '): ' + s.destination,
-          'CWE-598', { destination: s.destination, method: 'GET', dataTypes: credTypes, requestUrl: agg, isFirstParty: false, classification: s.classification },
-          'Credentials must never be sent to third-party domains. Review and remove credential leakage paths.');
+        const hasIndividual = this.findings.issues.some(i =>
+          i.type === 'credential-in-url' && i.details && i.details.destination === s.destination
+        );
+        if (!hasIndividual) {
+          // For CDN/analytics/advertising domains, credential-named params (apikey, auth, key)
+          // are typically public identifiers or service tokens, not secret credentials.
+          // Only flag HIGH for unknown third parties or when high-severity creds are present.
+          const credTypes = types.filter(dt => dt.startsWith('credential:'));
+          const hasHighSevCred = credTypes.some(dt => {
+            const param = dt.replace('credential:', '');
+            return this._highSeverityCreds.includes(param);
+          });
+          const knownDomain = s.classification === 'cdn' || s.classification === 'analytics' || s.classification === 'advertising';
+          const credSeverity = hasHighSevCred ? 'HIGH' : (knownDomain ? 'LOW' : 'MEDIUM');
+          this._addIssue(credSeverity, 'credentials-to-third-party',
+            'Credential data sent to third party (' + s.classification + '): ' + s.destination,
+            'CWE-598', { destination: s.destination, method: 'GET', dataTypes: credTypes, requestUrl: agg, isFirstParty: false, classification: s.classification },
+            'Credentials must never be sent to third-party domains. Review and remove credential leakage paths.');
+        }
+        continue;
       }
 
       if (types.length > 0 && !hasPII && !hasCreds) {
+        const allHighEntropy = types.every(dt => dt === 'high-entropy-token');
+        if (allHighEntropy && s.classification !== 'unknown-third-party') continue;
         this._addIssue('INFO', 'third-party-data-flow',
           'Data flow to ' + s.classification + ' domain: ' + s.destination + ' (' + s.requestCount + ' requests, types: ' + types.join(', ') + ')',
           'CWE-200', { destination: s.destination, method: 'GET', dataTypes: types, requestUrl: agg, isFirstParty: false, classification: s.classification },
@@ -478,6 +491,10 @@ class ExfiltrationDetector {
   // --- Helpers ---
 
   _addIssue(severity, type, message, cwe, details, recommendation) {
+    const baseDomain = (details.destination || '').split('.').slice(-2).join('.');
+    const dedupKey = type + ':' + baseDomain + ':' + (details.dataTypes || []).sort().join(',');
+    if (this._seenIssues.has(dedupKey)) return;
+    this._seenIssues.add(dedupKey);
     this.findings.issues.push({ severity, type, message, cwe, details, recommendation });
   }
 
