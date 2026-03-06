@@ -3858,7 +3858,7 @@ function resetSettings() {
     googleApiTesting: {
       selectedServices: {
         'youtube': true, 'maps-static': true, 'geolocation': true,
-        'custom-search': true, 'fcm': true, 'translation': true,
+        'custom-search': true, 'firebase-auth': true, 'translation': true,
         'books': true, 'timezone': true, 'directions': true,
         'places': true, 'geocoding': true, 'distance-matrix': true,
         'elevation': true, 'pagespeed': true, 'fonts': true,
@@ -7729,7 +7729,7 @@ const GOOGLE_API_PRESETS = {
   infrastructure: ['resource-manager', 'compute-engine', 'cloud-storage', 'secret-manager', 'bigquery'],
   all: [
     // Original APIs (15)
-    'youtube', 'maps-static', 'geolocation', 'custom-search', 'fcm', 'translation', 'books',
+    'youtube', 'maps-static', 'geolocation', 'custom-search', 'firebase-auth', 'translation', 'books',
     'timezone', 'directions', 'places', 'geocoding', 'distance-matrix', 'elevation', 'pagespeed', 'fonts',
     // AI/ML APIs (7)
     'vertex-ai', 'gemini', 'vision', 'speech', 'video-intelligence', 'natural-language', 'text-to-speech',

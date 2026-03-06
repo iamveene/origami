@@ -213,7 +213,7 @@ const DEFAULT_SETTINGS = {
       'maps-static': true,
       'geolocation': true,
       'custom-search': true,
-      'fcm': true,
+      'firebase-auth': true,
       'translation': true,
       'books': true,
       'timezone': true,

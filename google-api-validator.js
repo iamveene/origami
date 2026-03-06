@@ -145,19 +145,20 @@ class GoogleAPIValidator {
     return this.testAPI('Custom Search API', url);
   }
 
-  async testFCMAPI() {
-    const url = 'https://fcm.googleapis.com/fcm/send';
-    const result = await this.testAPI('Firebase Cloud Messaging', url, { 
+  async testFirebaseAuthAPI() {
+    const url = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${this.apiKey}`;
+    const result = await this.testAPI('Firebase Auth (Identity Toolkit)', url, {
       method: 'POST',
-      authHeader: true
+      body: {},
+      contentType: 'application/json'
     });
-    
-    // FCM returns 400 if enabled but request invalid (expected)
+
+    // 400 = enabled (missing email/password expected)
     if (result.code === 400) {
       return {
         ...result,
         status: 'ENABLED',
-        message: 'API is enabled (invalid request expected)'
+        message: 'API is enabled (missing credentials expected)'
       };
     }
     return result;
@@ -224,7 +225,7 @@ class GoogleAPIValidator {
 
   async testGeminiAPI() {
     // Test Gemini API with minimal text generation request
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${this.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`;
     const body = {
       contents: [{
         parts: [{ text: "Hi" }]
@@ -459,7 +460,7 @@ class GoogleAPIValidator {
       this.testMapsStaticAPI(),
       this.testGeolocationAPI(),
       this.testCustomSearchAPI(),
-      this.testFCMAPI(),
+      this.testFirebaseAuthAPI(),
       this.testTranslationAPI(),
       this.testBooksAPI(),
       this.testTimezoneAPI(),
@@ -502,7 +503,7 @@ class GoogleAPIValidator {
       'maps-static': () => this.testMapsStaticAPI(),
       'geolocation': () => this.testGeolocationAPI(),
       'custom-search': () => this.testCustomSearchAPI(),
-      'fcm': () => this.testFCMAPI(),
+      'firebase-auth': () => this.testFirebaseAuthAPI(),
       'translation': () => this.testTranslationAPI(),
       'books': () => this.testBooksAPI(),
       'timezone': () => this.testTimezoneAPI(),
