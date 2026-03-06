@@ -875,6 +875,20 @@ class MCPBridge {
     const findingLocation = finding.uri || finding.url || finding.details?.uri || finding.source || '';
     const findingContext = finding.codeContext || finding.details?.context || '';
 
+    // Look up Google API validation results if this is a Google API key finding
+    let apiValidationSection = '';
+    if (category === 'secrets') {
+      const isGoogleAPIKey = finding.pattern_matched === 'Google Cloud API Key' ||
+        (finding.full_key || finding.key || '').startsWith('AIza');
+      if (isGoogleAPIKey && typeof apiValidationResults !== 'undefined') {
+        const keyNorm = normalizeSecretKey(finding.full_key || finding.key);
+        const validation = apiValidationResults.get(keyNorm);
+        if (validation && validation.results) {
+          apiValidationSection = this._buildApiValidationSection(validation, finding.upgrade_reason);
+        }
+      }
+    }
+
     const prompt = [
       'SECURITY ASSESSMENT -- PROOF OF CONCEPT',
       '========================================',
@@ -890,6 +904,7 @@ class MCPBridge {
       findingPattern ? '- Evidence: ' + String(findingPattern).substring(0, 2000) : '',
       findingLocation ? '- Location: ' + findingLocation : '',
       findingContext ? '- Code Context:\n```\n' + String(findingContext).substring(0, 1000) + '\n```' : '',
+      apiValidationSection,
       '',
       '## Output Format',
       '',
@@ -1290,6 +1305,56 @@ class MCPBridge {
       console.error('Origami MCP: _loadTabFindings error:', e.message);
       return [];
     }
+  }
+
+  _buildApiValidationSection(validation, upgradeReason) {
+    const enabled = validation.results.filter(r =>
+      r.status === 'ENABLED' || r.status === 'ENABLED (Quota Exceeded)');
+    if (enabled.length === 0) return '';
+
+    const lines = [
+      '',
+      '## Google API Validation Results',
+      '',
+      'The user ran API validation on this key. ' + enabled.length + ' of ' + validation.total_count + ' tested APIs are enabled.',
+      upgradeReason ? 'Risk escalation reason: ' + upgradeReason : '',
+      'IMPORTANT: Prioritize PoC for the highest-impact enabled service (Firebase Auth > RTDB/Firestore/Storage > Cloud APIs > Maps/Geolocation).',
+      '',
+    ];
+
+    enabled.forEach(r => {
+      let entry = '- ' + r.service + ': ' + r.status;
+      if (r.message) entry += ' -- ' + r.message;
+      if (r.impact) entry += ' [Impact: ' + r.impact + ']';
+
+      // Add structured details without leaking real tokens
+      const d = r.details || {};
+      if (r.service === 'Firebase Auth (Identity Toolkit)') {
+        if (d.tokenObtained) entry += '\n  - Anonymous token minted successfully (idToken obtained)';
+        if (r.localId) entry += '\n  - Anonymous user ID: ' + r.localId;
+        if (d.authType) entry += '\n  - Auth type: ' + d.authType;
+      } else if (r.service === 'Firebase Realtime Database') {
+        if (d.accessLevel) entry += '\n  - Access level: ' + d.accessLevel;
+        if (d.topLevelKeys && d.topLevelKeys.length > 0) entry += '\n  - Top-level keys: ' + d.topLevelKeys.slice(0, 10).join(', ');
+        if (d.databaseUrl) entry += '\n  - Database URL: ' + d.databaseUrl;
+      } else if (r.service === 'Cloud Firestore') {
+        if (d.collections && d.collections.length > 0) entry += '\n  - Collections: ' + d.collections.slice(0, 10).join(', ');
+      } else if (r.service === 'Firebase Storage') {
+        if (d.itemCount != null) entry += '\n  - Files found: ' + d.itemCount;
+        if (d.sampleFiles && d.sampleFiles.length > 0) entry += '\n  - Sample files: ' + d.sampleFiles.slice(0, 5).join(', ');
+      }
+
+      lines.push(entry);
+    });
+
+    lines.push('');
+    lines.push('When Firebase Auth is enabled with anonymous signup, demonstrate the full chain:');
+    lines.push('1. Mint anonymous token via identitytoolkit.googleapis.com/v1/accounts:signUp?key=KEY');
+    lines.push('2. Use idToken to access RTDB/Firestore/Storage (auth != null bypass)');
+    lines.push('3. Extract project config via identitytoolkit.googleapis.com/v1/projects?key=KEY');
+    lines.push('Do NOT generate a generic Maps/Geolocation PoC when Firebase services are available.');
+
+    return lines.filter(Boolean).join('\n');
   }
 
   _extractItems(data) {

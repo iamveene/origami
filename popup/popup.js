@@ -4493,7 +4493,7 @@ function displayAPIValidationResults(results, apiKey) {
   function getApiStatusOrder(status) {
     if (status === 'ENABLED') return 0;
     if (status.includes('ENABLED')) return 1;
-    if (status === 'DISABLED') return 2;
+    if (status === 'DISABLED' || status === 'NOT_ACTIVATED') return 2;
     if (status === 'SKIPPED') return 3;
     return 4;
   }
@@ -4501,7 +4501,7 @@ function displayAPIValidationResults(results, apiKey) {
   function getApiStatusClass(status) {
     if (status === 'ENABLED') return 'enabled';
     if (status.includes('ENABLED')) return 'restricted';
-    if (status === 'DISABLED') return 'disabled';
+    if (status === 'DISABLED' || status === 'NOT_ACTIVATED') return 'disabled';
     if (status === 'SKIPPED') return 'skipped';
     return 'error';
   }
@@ -8120,7 +8120,7 @@ function displayTestResults(results) {
   function getApiStatusOrder(status) {
     if (status === 'ENABLED') return 0;
     if (status.includes('ENABLED')) return 1;
-    if (status === 'DISABLED') return 2;
+    if (status === 'DISABLED' || status === 'NOT_ACTIVATED') return 2;
     if (status === 'SKIPPED') return 3;
     return 4;
   }
@@ -8128,7 +8128,7 @@ function displayTestResults(results) {
   function getApiStatusClass(status) {
     if (status === 'ENABLED') return 'enabled';
     if (status.includes('ENABLED')) return 'restricted';
-    if (status === 'DISABLED') return 'disabled';
+    if (status === 'DISABLED' || status === 'NOT_ACTIVATED') return 'disabled';
     if (status === 'SKIPPED') return 'skipped';
     return 'error';
   }
@@ -11942,6 +11942,27 @@ async function generatePoC() {
         }
       });
       context.technologies = flatTechs;
+    }
+
+    // Fetch Google API validation results for Google API key findings
+    if (category === 'secret' && currentFindings && currentFindings[index]) {
+      const f = currentFindings[index];
+      const isGoogleAPIKey = f.pattern_matched === 'Google Cloud API Key' ||
+        (f.full_key || f.key || '').startsWith('AIza');
+      if (isGoogleAPIKey) {
+        try {
+          const keyNorm = origamiNormalizeSecretKey(f.full_key || f.key);
+          const resp = await new Promise(resolve => {
+            chrome.runtime.sendMessage({ action: 'getAPIValidationResults', apiKey: keyNorm }, resolve);
+          });
+          if (resp && resp.results) {
+            context.apiValidation = resp.results;
+            if (f.upgrade_reason) finding.upgrade_reason = f.upgrade_reason;
+          }
+        } catch (e) {
+          // Validation results unavailable, proceed without enrichment
+        }
+      }
     }
 
     // Use PoCGenerator

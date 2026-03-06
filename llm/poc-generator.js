@@ -141,6 +141,10 @@ class PoCGenerator {
       if (context.dom) {
         prompt += '- Relevant DOM Context:\n```html\n' + this._truncate(context.dom, 500) + '\n```\n';
       }
+
+      if (context.apiValidation && context.apiValidation.results) {
+        prompt += this._buildApiValidationSection(context.apiValidation, finding.upgrade_reason);
+      }
     }
 
     prompt += '\n## Required Output: Single Proof of Concept\n\n';
@@ -206,6 +210,48 @@ class PoCGenerator {
     prompt += '```';
 
     return prompt;
+  }
+
+  _buildApiValidationSection(validation, upgradeReason) {
+    const enabled = (validation.results || []).filter(r =>
+      r.status === 'ENABLED' || r.status === 'ENABLED (Quota Exceeded)');
+    if (enabled.length === 0) return '';
+
+    let section = '\n## Google API Validation Results\n\n';
+    section += 'The user ran API validation on this key. ' + enabled.length + ' of ' + (validation.total_count || validation.results.length) + ' tested APIs are enabled.\n';
+    if (upgradeReason) section += 'Risk escalation reason: ' + upgradeReason + '\n';
+    section += 'IMPORTANT: Prioritize PoC for the highest-impact enabled service (Firebase Auth > RTDB/Firestore/Storage > Cloud APIs > Maps/Geolocation).\n\n';
+
+    enabled.forEach(r => {
+      section += '- ' + r.service + ': ' + r.status;
+      if (r.message) section += ' -- ' + r.message;
+      if (r.impact) section += ' [Impact: ' + r.impact + ']';
+      section += '\n';
+
+      const d = r.details || {};
+      if (r.service === 'Firebase Auth (Identity Toolkit)') {
+        if (d.tokenObtained) section += '  - Anonymous token minted successfully (idToken obtained)\n';
+        if (r.localId) section += '  - Anonymous user ID: ' + r.localId + '\n';
+        if (d.authType) section += '  - Auth type: ' + d.authType + '\n';
+      } else if (r.service === 'Firebase Realtime Database') {
+        if (d.accessLevel) section += '  - Access level: ' + d.accessLevel + '\n';
+        if (d.topLevelKeys && d.topLevelKeys.length > 0) section += '  - Top-level keys: ' + d.topLevelKeys.slice(0, 10).join(', ') + '\n';
+        if (d.databaseUrl) section += '  - Database URL: ' + d.databaseUrl + '\n';
+      } else if (r.service === 'Cloud Firestore') {
+        if (d.collections && d.collections.length > 0) section += '  - Collections: ' + d.collections.slice(0, 10).join(', ') + '\n';
+      } else if (r.service === 'Firebase Storage') {
+        if (d.itemCount != null) section += '  - Files found: ' + d.itemCount + '\n';
+        if (d.sampleFiles && d.sampleFiles.length > 0) section += '  - Sample files: ' + d.sampleFiles.slice(0, 5).join(', ') + '\n';
+      }
+    });
+
+    section += '\nWhen Firebase Auth is enabled with anonymous signup, demonstrate the full chain:\n';
+    section += '1. Mint anonymous token via identitytoolkit.googleapis.com/v1/accounts:signUp?key=KEY\n';
+    section += '2. Use idToken to access RTDB/Firestore/Storage (auth != null bypass)\n';
+    section += '3. Extract project config via identitytoolkit.googleapis.com/v1/projects?key=KEY\n';
+    section += 'Do NOT generate a generic Maps/Geolocation PoC when Firebase services are available.\n';
+
+    return section;
   }
 
   // Send prompt to LLM via background service worker

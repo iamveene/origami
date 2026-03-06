@@ -182,6 +182,7 @@ const DEFAULT_SETTINGS = {
   },
   custom_patterns: [], // Legacy - kept for backward compatibility
   history_enabled: true,
+  auto_validate_google_keys: true,
   api_validation: {
     enabled: true,
     auto_test: false,
@@ -304,6 +305,11 @@ importScripts('analyzers/brute-force-scanner.js');
 // Web Crawler
 // ============================================================================
 importScripts('analyzers/crawler.js');
+// ============================================================================
+
+// Google API Validator - used for auto-validation of detected keys
+// ============================================================================
+importScripts('google-api-validator.js');
 // ============================================================================
 
 // ============================================================================
@@ -2042,6 +2048,125 @@ async function reassessAPIKeyRisk(tabId, apiKey, newRisk, reason) {
   }
 }
 
+async function reassessAPIKeyRiskDown(tabId, apiKey, newRisk, reason) {
+  try {
+    const findings = await loadTabFindings(tabId);
+    if (!findings || findings.length === 0) return;
+
+    let updated = false;
+    const severityOrder = { 'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'INFO': 4 };
+    const updatedFindings = findings.map(finding => {
+      const normalizedKey = normalizeSecretKey(finding.full_key || finding.key);
+      const isGoogleAPIKey = finding.pattern_matched === 'Google Cloud API Key' ||
+        (finding.full_key || finding.key || '').startsWith('AIza');
+      if (normalizedKey === apiKey && isGoogleAPIKey) {
+        const currentLevel = severityOrder[finding.risk] ?? 3;
+        const newLevel = severityOrder[newRisk] ?? 3;
+        if (newLevel > currentLevel) {
+          console.log(`Origami: Downgrading Google API key from ${finding.risk} to ${newRisk}:`, apiKey.substring(0, 8) + '****');
+          updated = true;
+          return { ...finding, risk: newRisk, upgrade_reason: reason };
+        }
+      }
+      return finding;
+    });
+
+    if (updated) {
+      await saveTabFindings(tabId, updatedFindings);
+      const settings = await new Promise(resolve => {
+        chrome.storage.sync.get(['settings'], data => resolve(data.settings || DEFAULT_SETTINGS));
+      });
+      if (settings.badge_enabled) {
+        updateBadge(tabId, updatedFindings, settings);
+      }
+    }
+  } catch (error) {
+    console.error('Error downgrading API key risk:', error);
+  }
+}
+
+// Shared escalation/downgrade logic for Google API validation results.
+// Called by both the manual storeAPIValidationResults handler and autoValidateGoogleKeys.
+// isAuto: true for auto-validation (service worker context) — disables INFO downgrade
+// because referer-restricted keys return API_KEY_INVALID without the right Referer,
+// making them indistinguishable from truly dead keys.
+async function processValidationResults(results, tabId, apiKey, isAuto = false) {
+  const criticalServices = [
+    'Vertex AI / AI Platform',
+    'Generative AI (Gemini)',
+    'Cloud Vision API',
+    'Speech-to-Text API',
+    'Video Intelligence API',
+    'Compute Engine API',
+    'Cloud Storage API',
+    'Secret Manager API'
+  ];
+
+  const workingResults = results.filter(r => r.status === 'ENABLED' || r.status === 'ENABLED (Quota Exceeded)');
+  const unrestrictedResults = workingResults.filter(r => !r.refererRequired);
+  const hasCriticalService = unrestrictedResults.some(r => criticalServices.includes(r.service));
+  const hasUnrestrictedService = unrestrictedResults.length > 0;
+  const hasAnyService = workingResults.length > 0;
+
+  if (hasCriticalService) {
+    await reassessAPIKeyRisk(tabId, apiKey, 'CRITICAL',
+      'Critical GCP services enabled without restriction (Gemini/Vertex AI/Compute/Storage/Secrets)');
+  } else if (hasUnrestrictedService) {
+    await reassessAPIKeyRisk(tabId, apiKey, 'HIGH',
+      'Billing-impacting GCP services enabled without restriction');
+  } else if (hasAnyService) {
+    await reassessAPIKeyRisk(tabId, apiKey, 'HIGH',
+      'GCP services enabled (referer-restricted to target page)');
+  }
+
+  const allInvalid = results.length > 0 && results.every(r =>
+    r.status === 'DISABLED' && r.message && /invalid|not valid/i.test(r.message));
+  // When auto-validation returns all-invalid, we can't distinguish dead keys from
+  // referer-restricted keys (service worker fetch may not send Referer reliably).
+  // Skip all downgrades in this case — only manual validation (popup) can confirm.
+  if (isAuto && allInvalid) {
+    console.log('Origami: Auto-validation returned all-invalid for', apiKey.substring(0, 8) + '****',
+      '— skipping downgrade (may be referer-restricted)');
+  } else if (allInvalid) {
+    await reassessAPIKeyRiskDown(tabId, apiKey, 'INFO', 'API key is invalid or revoked');
+  } else if (!hasAnyService) {
+    await reassessAPIKeyRiskDown(tabId, apiKey, 'LOW', 'No exploitable APIs enabled');
+  } else if (hasAnyService && unrestrictedResults.length === 0 &&
+             !workingResults.some(r => criticalServices.includes(r.service))) {
+    await reassessAPIKeyRiskDown(tabId, apiKey, 'LOW',
+      'Only low-risk referer-restricted APIs enabled');
+  }
+}
+
+// Auto-validate Google API keys detected during scanning
+async function autoValidateGoogleKeys(keys, tabId, refererUrl) {
+  for (const finding of keys) {
+    const apiKey = finding.full_key || finding.key;
+    const normalized = normalizeSecretKey(apiKey);
+
+    if (apiValidationResults.has(normalized)) continue;
+
+    try {
+      const validator = new GoogleAPIValidator(apiKey, refererUrl);
+      const results = await validator.runQuickTests();
+
+      apiValidationResults.set(normalized, {
+        timestamp: new Date().toISOString(),
+        results: results,
+        enabled_count: results.filter(r => r.status === 'ENABLED' || r.status === 'ENABLED (Quota Exceeded)').length,
+        total_count: results.length,
+        auto: true
+      });
+
+      await processValidationResults(results, tabId, normalized, true);
+
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (err) {
+      console.error('Origami: Auto-validation failed for key:', normalized.substring(0, 8), err.message);
+    }
+  }
+}
+
 // Handle messages from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Relay scan progress from content script to popup
@@ -2123,7 +2248,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const historySecResults = await loadTabSecurityResults(tabId);
         addToHistory(filteredFindings, url, settings, historySecResults);
 
-        // Note: Auto-validation handled in popup for better fetch API access
+      }
+
+      // Auto-validate Google API keys in background
+      if (settings.auto_validate_google_keys && filteredFindings.length > 0) {
+        const googleKeys = filteredFindings.filter(f =>
+          f.pattern_matched === 'Google Cloud API Key' ||
+          (f.full_key || f.key || '').startsWith('AIza'));
+        if (googleKeys.length > 0) {
+          const refererUrl = url || sender.url;
+          autoValidateGoogleKeys(googleKeys, tabId, refererUrl).catch(err =>
+            console.error('Origami: Auto-validation error:', err));
+        }
       }
 
       // Notify MCP bridge of scan completion
@@ -2187,32 +2323,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       total_count: results.length
     });
 
-    // Reassess API key risk based on which services are enabled
-    // Wrapped in async IIFE to await reassessment before responding
     (async () => {
       if (tabId) {
-        const criticalServices = [
-          'Vertex AI / AI Platform',
-          'Generative AI (Gemini)',
-          'Cloud Vision API',
-          'Speech-to-Text API',
-          'Video Intelligence API',
-          'Compute Engine API',
-          'Cloud Storage API',
-          'Secret Manager API'
-        ];
-
-        const workingResults = results.filter(r => r.status === 'ENABLED' || r.status === 'ENABLED (Quota Exceeded)');
-        const hasCriticalService = workingResults.some(r => criticalServices.includes(r.service));
-        const hasAnyService = workingResults.length > 0;
-
-        if (hasCriticalService) {
-          await reassessAPIKeyRisk(tabId, apiKey, 'CRITICAL',
-            'Critical GCP services enabled (Gemini/Vertex AI/Compute/Storage/Secrets)');
-        } else if (hasAnyService) {
-          await reassessAPIKeyRisk(tabId, apiKey, 'HIGH',
-            'Billing-impacting GCP services enabled');
-        }
+        await processValidationResults(results, tabId, apiKey);
       }
       sendResponse({ success: true });
     })();

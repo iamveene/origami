@@ -356,10 +356,6 @@
               if (awsExampleKeys.some(prefix => value.startsWith(prefix))) return;
             }
 
-            // Google browser API keys (AIzaSy prefix) are publishable client-side keys
-            // restricted by HTTP referrer -- not secrets, by design embedded in web pages
-            if (pattern.name === 'Google Cloud API Key' && /^AIzaSy/.test(value)) return;
-
             // Skip generic API key pattern matches on CSS hex colors and hash values
             if (pattern.name === 'API Key Pattern') {
               const keyValue = value.replace(/.*?[=:]\s*['"]/, '').replace(/['"]$/, '');

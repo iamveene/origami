@@ -42,6 +42,13 @@ class GoogleAPIValidator {
         mode: 'cors'
       };
 
+      // Use fetch referrer option as well — headers['Referer'] may be ignored
+      // as a forbidden header in some contexts (service worker vs popup).
+      if (this.referer) {
+        fetchOptions.referrer = this.referer;
+        fetchOptions.referrerPolicy = 'unsafe-url';
+      }
+
       if (body) {
         fetchOptions.body = typeof body === 'string' ? body : JSON.stringify(body);
       }
@@ -62,35 +69,41 @@ class GoogleAPIValidator {
       }
 
       // Check for image response
-      if (checkImage && response.status === 200 && 
+      if (checkImage && response.status === 200 &&
           response.headers.get('content-type')?.includes('image')) {
-        return {
+        const result = {
           service,
           status: 'ENABLED',
           code: 200,
           message: 'API is enabled and working'
         };
+        if (this.referer) result.refererRequired = true;
+        return result;
       }
 
       // Check for success
       if (response.status === 200) {
-        return {
+        const result = {
           service,
           status: 'ENABLED',
           code: 200,
           message: 'API is enabled and working'
         };
+        if (this.referer) result.refererRequired = true;
+        return result;
       }
 
       // Check for quota exceeded
-      if (checkQuota && (responseText.includes('quotaExceeded') || 
+      if (checkQuota && (responseText.includes('quotaExceeded') ||
           responseText.includes('OVER_QUERY_LIMIT'))) {
-        return {
+        const result = {
           service,
           status: 'ENABLED (Quota Exceeded)',
           code: response.status,
           message: 'API enabled but quota exceeded'
         };
+        if (this.referer) result.refererRequired = true;
+        return result;
       }
 
       // Check for API key restriction patterns (key is valid but restricted)
@@ -129,7 +142,7 @@ class GoogleAPIValidator {
           responseText.includes('is not activated')) {
         return {
           service,
-          status: 'ENABLED (API Not Activated)',
+          status: 'NOT_ACTIVATED',
           code: response.status,
           message: 'API key valid but this specific API is not enabled for the project'
         };
@@ -263,7 +276,7 @@ class GoogleAPIValidator {
           const projectMatch = String(errorRaw).match(/project\s+(\d{6,})\b/);
           if (projectMatch) this._extractedProjectNumber = projectMatch[1];
         }
-        return { service: 'Firebase Auth (Identity Toolkit)', status: 'ENABLED (API Not Activated)', code: response.status,
+        return { service: 'Firebase Auth (Identity Toolkit)', status: 'NOT_ACTIVATED', code: response.status,
           message: 'API key valid but Identity Toolkit is not enabled for the project', impact: 'LOW', cost: 'LOW' };
       }
 
