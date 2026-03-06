@@ -46,6 +46,7 @@ function clearTargetOverride() {
   _overrideTabId = null;
   _overrideTabUrl = null;
   chrome.storage.session.remove('targetOverride');
+  chrome.storage.local.remove('mcp_context_tab');
   updateTargetOverrideUI();
 }
 
@@ -300,19 +301,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   const selfTab = await chrome.tabs.getCurrent();
   _isFullPageMode = !!selfTab;
 
-  // Restore override from session storage
-  try {
-    const session = await chrome.storage.session.get('targetOverride');
-    if (session.targetOverride?.tabId) {
-      try {
-        await chrome.tabs.get(session.targetOverride.tabId);
-        _overrideTabId = session.targetOverride.tabId;
-        _overrideTabUrl = session.targetOverride.tabUrl;
-      } catch (e) {
-        chrome.storage.session.remove('targetOverride');
+  // Restore override from session storage (only in full-page mode -- overlay
+  // should always target the current active tab, not a stale override)
+  if (_isFullPageMode) {
+    try {
+      const session = await chrome.storage.session.get('targetOverride');
+      if (session.targetOverride?.tabId) {
+        try {
+          await chrome.tabs.get(session.targetOverride.tabId);
+          _overrideTabId = session.targetOverride.tabId;
+          _overrideTabUrl = session.targetOverride.tabUrl;
+        } catch (e) {
+          chrome.storage.session.remove('targetOverride');
+        }
       }
-    }
-  } catch (e) { /* session storage unavailable */ }
+    } catch (e) { /* session storage unavailable */ }
+  } else {
+    // Overlay mode: clear any stale full-page state
+    chrome.storage.session.remove('targetOverride');
+    chrome.storage.local.remove('mcp_context_tab');
+  }
 
   // URL parameter override (used by Playwright tests and expand-to-fullpage)
   const params = new URLSearchParams(window.location.search);
