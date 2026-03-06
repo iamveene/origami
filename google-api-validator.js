@@ -6,6 +6,7 @@ class GoogleAPIValidator {
     this.apiKey = apiKey;
     this.referer = referer;
     this.results = [];
+    this._extractedProjectNumber = null;
     // SECURITY NOTE: Testing API keys makes live requests to Google APIs from the user's IP.
     // This creates an attribution trail. Users should be aware that:
     // 1. Their IP is logged in the key owner's API usage logs
@@ -101,6 +102,14 @@ class GoogleAPIValidator {
         // Strip any HTML tags from error messages to prevent injection
         const errorMessage = String(rawMessage).replace(/<[^>]*>/g, '').substring(0, 200);
 
+        // Extract project number from error messages (e.g., "project 836575658406")
+        if (!this._extractedProjectNumber) {
+          const projectMatch = String(rawMessage).match(/project\s+(\d{6,})\b/);
+          if (projectMatch) {
+            this._extractedProjectNumber = projectMatch[1];
+          }
+        }
+
         return {
           service,
           status: 'DISABLED',
@@ -108,6 +117,14 @@ class GoogleAPIValidator {
           message: errorMessage
         };
       } catch {
+        // Extract project number from non-JSON responses too
+        if (!this._extractedProjectNumber) {
+          const projectMatch = responseText.match(/project\s+(\d{6,})\b/);
+          if (projectMatch) {
+            this._extractedProjectNumber = projectMatch[1];
+          }
+        }
+
         return {
           service,
           status: 'DISABLED',
@@ -180,8 +197,13 @@ class GoogleAPIValidator {
           message: 'API enabled (anonymous auth may be disabled)', impact: 'HIGH', cost: 'LOW' };
       }
 
+      const errorMsg = data.error?.message || 'API key not valid for Identity Toolkit';
+      if (!this._extractedProjectNumber) {
+        const projectMatch = String(errorMsg).match(/project\s+(\d{6,})\b/);
+        if (projectMatch) this._extractedProjectNumber = projectMatch[1];
+      }
       return { service: 'Firebase Auth (Identity Toolkit)', status: 'DISABLED', code: response.status,
-        message: data.error?.message || 'API key not valid for Identity Toolkit', impact: 'LOW', cost: 'LOW' };
+        message: errorMsg, impact: 'LOW', cost: 'LOW' };
     } catch (error) {
       return { service: 'Firebase Auth (Identity Toolkit)', status: 'ERROR', code: 0, message: error.message };
     }
@@ -571,6 +593,22 @@ class GoogleAPIValidator {
 
   // ===== GCP Infrastructure APIs (High Reconnaissance Value) =====
 
+  async _probeProjectNumber() {
+    if (this._extractedProjectNumber) return this._extractedProjectNumber;
+    // Lightweight probe: Books API is free and reliably leaks project number in error messages
+    const url = `https://www.googleapis.com/books/v1/volumes?q=test&key=${this.apiKey}`;
+    try {
+      const response = await fetch(url);
+      const text = await response.text();
+      const match = text.match(/project\s+(\d{6,})\b/);
+      if (match) {
+        this._extractedProjectNumber = match[1];
+        return match[1];
+      }
+    } catch {}
+    return null;
+  }
+
   async discoverProjectIds() {
     // Discover accessible GCP project IDs via Resource Manager API
     const url = `https://cloudresourcemanager.googleapis.com/v1/projects?key=${this.apiKey}`;
@@ -613,7 +651,7 @@ class GoogleAPIValidator {
       return {
         service: 'Compute Engine API',
         status: 'SKIPPED',
-        message: 'Requires project ID (run Resource Manager first)',
+        message: 'Requires project ID or number (none extractable from API responses)',
         impact: 'CRITICAL',
         cost: 'LOW'
       };
@@ -630,7 +668,7 @@ class GoogleAPIValidator {
       return {
         service: 'Cloud Storage API',
         status: 'SKIPPED',
-        message: 'Requires project ID (run Resource Manager first)',
+        message: 'Requires project ID or number (none extractable from API responses)',
         impact: 'CRITICAL',
         cost: 'LOW'
       };
@@ -646,7 +684,7 @@ class GoogleAPIValidator {
       return {
         service: 'Secret Manager API',
         status: 'SKIPPED',
-        message: 'Requires project ID (run Resource Manager first)',
+        message: 'Requires project ID or number (none extractable from API responses)',
         impact: 'CRITICAL',
         cost: 'LOW'
       };
@@ -662,7 +700,7 @@ class GoogleAPIValidator {
       return {
         service: 'BigQuery API',
         status: 'SKIPPED',
-        message: 'Requires project ID (run Resource Manager first)',
+        message: 'Requires project ID or number (none extractable from API responses)',
         impact: 'HIGH',
         cost: 'MEDIUM'
       };
@@ -688,17 +726,15 @@ class GoogleAPIValidator {
 
   // Full test suite (all 30 APIs)
   async runAllTests() {
-    // Sequential: Resource Manager first (for project IDs), then Firebase Auth (for idToken)
+    // Phase 1: Resource Manager + Firebase Auth + all non-infra tests
     const resourceManagerResult = await this.testResourceManagerAPI();
     const discoveredProjects = resourceManagerResult.discoveredProjects || [];
-    const projectId = discoveredProjects.length > 0 ? discoveredProjects[0].projectId : null;
+    let projectId = discoveredProjects.length > 0 ? discoveredProjects[0].projectId : null;
 
     const firebaseAuthResult = await this.testFirebaseAuthAPI();
     const idToken = firebaseAuthResult.anonymousToken || null;
 
-    // Run remaining tests in parallel
-    const tests = [
-      // Original 14 APIs (firebase-auth already ran above)
+    const phase1Tests = [
       this.testYouTubeAPI(),
       this.testMapsStaticAPI(),
       this.testGeolocationAPI(),
@@ -713,43 +749,51 @@ class GoogleAPIValidator {
       this.testElevationAPI(),
       this.testPageSpeedAPI(),
       this.testFontsAPI(),
-      // AI/ML APIs (7)
       this.testVertexAIAPI(),
       this.testGeminiAPI(),
       this.testVisionAPI(),
       this.testSpeechAPI(),
       this.testVideoIntelligenceAPI(),
       this.testNaturalLanguageAPI(),
-      this.testTextToSpeechAPI(),
-      // Infrastructure APIs (5) - use discovered project ID
-      this.testComputeEngineAPI(projectId),
-      this.testCloudStorageAPI(projectId),
-      this.testSecretManagerAPI(projectId),
-      this.testBigQueryAPI(projectId),
-      // Firebase Exploitation (3) - use idToken from auth + projectId
-      this.testFirebaseRealtimeDB(projectId, idToken),
-      this.testFirestoreAPI(projectId),
-      this.testFirebaseStorageBucket(projectId)
+      this.testTextToSpeechAPI()
     ];
 
-    const results = await Promise.all(tests);
+    const phase1Results = await Promise.all(phase1Tests);
 
-    // Prepend sequential results
-    return [resourceManagerResult, firebaseAuthResult, ...results];
+    // Phase 2: Use discovered project ID, or fall back to project number extracted from error messages
+    const projectIdentifier = projectId || this._extractedProjectNumber;
+
+    const phase2Tests = [
+      this.testComputeEngineAPI(projectIdentifier),
+      this.testCloudStorageAPI(projectIdentifier),
+      this.testSecretManagerAPI(projectIdentifier),
+      this.testBigQueryAPI(projectIdentifier),
+      // Firebase hostname-based services need string project ID, not a number
+      this.testFirebaseRealtimeDB(projectId || this._firebaseProjectId, idToken),
+      this.testFirestoreAPI(projectIdentifier),
+      this.testFirebaseStorageBucket(projectId || this._firebaseProjectId)
+    ];
+
+    const phase2Results = await Promise.all(phase2Tests);
+
+    return [resourceManagerResult, firebaseAuthResult, ...phase1Results, ...phase2Results];
   }
 
   // Run selected tests based on service IDs (new granular testing)
   async runSelectedTests(selectedServiceIds, discoveredProjects = []) {
-    const projectId = discoveredProjects.length > 0 ? discoveredProjects[0].projectId : null;
+    let projectId = discoveredProjects.length > 0 ? discoveredProjects[0].projectId : null;
 
-    // Map of service IDs to test methods
+    const infraServices = new Set(['compute-engine', 'cloud-storage', 'secret-manager', 'bigquery']);
+    const firebaseDbServices = new Set(['firebase-realtime-db', 'firebase-firestore', 'firebase-storage']);
+    const projectDependentServices = new Set([...infraServices, ...firebaseDbServices]);
+    const sequentialIds = new Set(['resource-manager', 'firebase-auth']);
+
+    // Service map for non-project-dependent tests
     const serviceMap = {
-      // Original APIs
       'youtube': () => this.testYouTubeAPI(),
       'maps-static': () => this.testMapsStaticAPI(),
       'geolocation': () => this.testGeolocationAPI(),
       'custom-search': () => this.testCustomSearchAPI(),
-      'firebase-auth': () => this.testFirebaseAuthAPI(),
       'translation': () => this.testTranslationAPI(),
       'books': () => this.testBooksAPI(),
       'timezone': () => this.testTimezoneAPI(),
@@ -760,7 +804,6 @@ class GoogleAPIValidator {
       'elevation': () => this.testElevationAPI(),
       'pagespeed': () => this.testPageSpeedAPI(),
       'fonts': () => this.testFontsAPI(),
-      // AI/ML APIs
       'vertex-ai': () => this.testVertexAIAPI(),
       'gemini': () => this.testGeminiAPI(),
       'vision': () => this.testVisionAPI(),
@@ -768,34 +811,20 @@ class GoogleAPIValidator {
       'video-intelligence': () => this.testVideoIntelligenceAPI(),
       'natural-language': () => this.testNaturalLanguageAPI(),
       'text-to-speech': () => this.testTextToSpeechAPI(),
-      // Infrastructure APIs
-      'resource-manager': () => this.testResourceManagerAPI(),
-      'compute-engine': () => this.testComputeEngineAPI(projectId),
-      'cloud-storage': () => this.testCloudStorageAPI(projectId),
-      'secret-manager': () => this.testSecretManagerAPI(projectId),
-      'bigquery': () => this.testBigQueryAPI(projectId),
-      // Firebase Exploitation
-      'firebase-realtime-db': () => this.testFirebaseRealtimeDB(projectId),
-      'firebase-firestore': () => this.testFirestoreAPI(projectId),
-      'firebase-storage': () => this.testFirebaseStorageBucket(projectId)
+      'resource-manager': () => this.testResourceManagerAPI()
     };
 
-    // If Resource Manager is selected, run it first to discover projects
-    let updatedProjects = discoveredProjects;
+    // --- Sequential: Resource Manager (if selected) ---
     let savedResourceManagerResult = null;
     if (selectedServiceIds.includes('resource-manager')) {
       savedResourceManagerResult = await this.testResourceManagerAPI();
       if (savedResourceManagerResult.discoveredProjects && savedResourceManagerResult.discoveredProjects.length > 0) {
-        updatedProjects = savedResourceManagerResult.discoveredProjects;
+        projectId = savedResourceManagerResult.discoveredProjects[0].projectId;
       }
     }
 
-    // Re-create project ID for infrastructure tests if we just discovered new ones
-    const updatedProjectId = updatedProjects.length > 0 ? updatedProjects[0].projectId : null;
-
-    // Firebase suite: run auth first to obtain idToken, then chain to DB/Firestore/Storage
-    const firebaseDbServices = ['firebase-realtime-db', 'firebase-firestore', 'firebase-storage'];
-    const hasFirebaseDb = selectedServiceIds.some(id => firebaseDbServices.includes(id));
+    // --- Sequential: Firebase Auth (if needed for idToken) ---
+    const hasFirebaseDb = selectedServiceIds.some(id => firebaseDbServices.has(id));
     const hasFirebaseAuth = selectedServiceIds.includes('firebase-auth');
     let savedFirebaseAuthResult = null;
     let firebaseIdToken = null;
@@ -805,38 +834,56 @@ class GoogleAPIValidator {
       firebaseIdToken = savedFirebaseAuthResult.anonymousToken || null;
     }
 
-    // Build test array based on selected service IDs
-    const sequentialIds = new Set(['resource-manager', 'firebase-auth']);
-    const tests = selectedServiceIds
-      .filter(id => !sequentialIds.has(id)) // Already ran if selected
+    // --- Phase 1: All non-project-dependent tests in parallel ---
+    const phase1Ids = selectedServiceIds.filter(id => !sequentialIds.has(id) && !projectDependentServices.has(id));
+    const phase1Tests = phase1Ids
       .map(id => {
         if (!serviceMap[id]) {
           console.warn(`Unknown service ID: ${id}`);
           return null;
         }
-        // For infrastructure APIs, use updated project ID
-        if (['compute-engine', 'cloud-storage', 'secret-manager', 'bigquery'].includes(id)) {
-          if (id === 'compute-engine') return this.testComputeEngineAPI(updatedProjectId);
-          if (id === 'cloud-storage') return this.testCloudStorageAPI(updatedProjectId);
-          if (id === 'secret-manager') return this.testSecretManagerAPI(updatedProjectId);
-          if (id === 'bigquery') return this.testBigQueryAPI(updatedProjectId);
-        }
-        // For Firebase DB services, use updated project ID and chained idToken
-        if (id === 'firebase-realtime-db') return this.testFirebaseRealtimeDB(updatedProjectId || this._firebaseProjectId, firebaseIdToken);
-        if (id === 'firebase-firestore') return this.testFirestoreAPI(updatedProjectId || this._firebaseProjectId);
-        if (id === 'firebase-storage') return this.testFirebaseStorageBucket(updatedProjectId || this._firebaseProjectId);
         return serviceMap[id]();
       })
       .filter(test => test !== null);
 
-    const results = await Promise.all(tests);
+    const phase1Results = await Promise.all(phase1Tests);
+
+    // --- Resolve project identifier for Phase 2 ---
+    // Prefer discovered project ID (string), fall back to project number extracted from error messages
+    const hasInfraTests = selectedServiceIds.some(id => projectDependentServices.has(id));
+    if (!projectId && hasInfraTests && !this._extractedProjectNumber) {
+      // No project number extracted from Phase 1 (e.g., only infra tests selected) -- run a probe
+      if (phase1Ids.length === 0) {
+        await this._probeProjectNumber();
+      }
+    }
+    const projectIdentifier = projectId || this._extractedProjectNumber;
+
+    // --- Phase 2: Project-dependent tests in parallel ---
+    const phase2Ids = selectedServiceIds.filter(id => projectDependentServices.has(id));
+    const phase2Tests = phase2Ids.map(id => {
+      if (infraServices.has(id) || id === 'firebase-firestore') {
+        // GCP APIs accept project number in URL paths
+        if (id === 'compute-engine') return this.testComputeEngineAPI(projectIdentifier);
+        if (id === 'cloud-storage') return this.testCloudStorageAPI(projectIdentifier);
+        if (id === 'secret-manager') return this.testSecretManagerAPI(projectIdentifier);
+        if (id === 'bigquery') return this.testBigQueryAPI(projectIdentifier);
+        if (id === 'firebase-firestore') return this.testFirestoreAPI(projectIdentifier);
+      }
+      // Firebase hostname-based services need string project ID, not a number
+      if (id === 'firebase-realtime-db') return this.testFirebaseRealtimeDB(projectId || this._firebaseProjectId, firebaseIdToken);
+      if (id === 'firebase-storage') return this.testFirebaseStorageBucket(projectId || this._firebaseProjectId);
+      return null;
+    }).filter(test => test !== null);
+
+    const phase2Results = await Promise.all(phase2Tests);
 
     // Prepend sequential results
     const prefixResults = [];
     if (savedResourceManagerResult) prefixResults.push(savedResourceManagerResult);
     if (savedFirebaseAuthResult && hasFirebaseAuth) prefixResults.push(savedFirebaseAuthResult);
 
-    return [...prefixResults, ...results];
+    return [...prefixResults, ...phase1Results, ...phase2Results];
   }
 }
 
